@@ -155,6 +155,25 @@ for (const [city, events] of Object.entries(admin.cityStreetModels)) for (const 
   assert(view.analysis.mapRows.some(([x, y]) => x === lon && y === lat));
   console.log(city, event, model.cells, "city walking cells,", scenario.event.pairedCells, "eligible shade cells");
 }
+const londonFull = archiveCase("London");
+for (const kind of ["exposure", "shade"]) {
+  const response = await fetch(base + "/api/analysis", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/x-ndjson", "Accept-Encoding": "gzip", Origin: base },
+    body: JSON.stringify({ kind, archiveCase: londonFull, mapFormat: "compact", shadePercent: 50 }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-encoding"), "gzip");
+  const stream = (await response.text()).trim().split("\n").map(JSON.parse);
+  assert(stream.some(record => record.type === "progress"));
+  const result = stream.at(-1);
+  assert(result.ok);
+  const map = result.analysis ?? result.event;
+  assert.match(map.mapResolution, /^500 m/);
+  assert(map.mapStep.every(Number.isFinite));
+  assert(map.mapRows.length > 1000 && map.mapRows.every(row => Number.isInteger(row[0]) && Number.isInteger(row[1])));
+  assert.equal(result.analysis?.cellCount ?? result.event?.pairedCells, kind === "shade" ? 8696 : 129280);
+}
 assert.equal((await api({ archiveCase: archiveCase("Lille"), kind: "exposure", coverage: "city" })).status, "unavailable");
 assert.equal((await api({ archiveCase: archiveCase("Amsterdam", "X1_2018-07"), kind: "shade" })).status, "unavailable");
 console.log("Administrative masks, event matching, population and street analysis passed.");

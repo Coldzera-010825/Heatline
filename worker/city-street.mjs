@@ -8,7 +8,7 @@ const contains = (bounds, x, y) => bounds[0] <= x && x <= bounds[2] && bounds[1]
 const noCells = () => ({ ok: false, status: "empty", reply: "No modelled walking cells in the selected area. Move the selection onto covered routes." });
 const detailLimit = 14000;
 
-async function evaluateCityStreet(model, bounds, shade, progress, readAdmin) {
+async function evaluateCityStreet(model, bounds, shade, detail, progress, readAdmin) {
   const shards = model.shards.filter(shard => overlaps(shard.bounds, bounds));
   const rows = [], pairs = [];
   progress("Reading SOLWEIG radiation for the selected part of " + model.label + "…");
@@ -19,10 +19,10 @@ async function evaluateCityStreet(model, bounds, shade, progress, readAdmin) {
       const selected = evaluateStreetGrid(tile, tile.weather, (lon, lat) => contains(bounds, lon, lat));
       for (const row of selected.rows) rows.push(row);
       if (shade) for (const row of selected.pairs) pairs.push(row);
-      if (shade || rows.length > detailLimit) {
+      if (shade || rows.length > detail) {
         for (const row of selected.rows) row.length = 4;
       }
-      if (pairs.length > detailLimit) {
+      if (pairs.length > detail) {
         for (const row of selected.pairs) row.length = 8;
       }
     }
@@ -31,8 +31,7 @@ async function evaluateCityStreet(model, bounds, shade, progress, readAdmin) {
   return { rows, pairs };
 }
 
-function streetMap(rows, latitude) {
-  const overview = rows.length > detailLimit;
+function streetMap(rows, latitude, overview, compact) {
   if (!overview) return {
     mapResolution: "100 m walking grid",
     mapRows: rows.map(([lon, lat, utci, length, ring]) => [lon, lat, utci, length, ring]),
@@ -49,10 +48,12 @@ function streetMap(rows, latitude) {
   }
   return {
     mapResolution: "500 m map overview · statistics use 100 m cells",
-    mapRows: [...grid.values()].map(([w, s, weighted, length]) => [
-      w + dx / 2, s + dy / 2, Number((weighted / length).toFixed(2)), Math.round(length),
-      [[w, s], [w + dx, s], [w + dx, s + dy], [w, s + dy], [w, s]],
-    ]),
+    mapRows: [...grid.values()].map(([w, s, weighted, length]) => {
+      const value = Number((weighted / length).toFixed(2));
+      if (compact) return [Math.round(w / dx), Math.round(s / dy), value, Math.round(length)];
+      return [w + dx / 2, s + dy / 2, value, Math.round(length), [[w, s], [w + dx, s], [w + dx, s + dy], [w, s + dy], [w, s]]];
+    }),
+    ...(compact ? { mapStep: [dx, dy] } : {}),
   };
 }
 
@@ -65,15 +66,18 @@ export async function analyzeCityStreet(body, model, city, progress, readAdmin) 
   if (body.kind === "shade" && (!Number.isFinite(body.shadePercent ?? 25) || (body.shadePercent ?? 25) < 0 || body.shadePercent > 100)) {
     return { ok: false, status: "clarify", reply: "Choose a shade conversion percentage between 0 and 100." };
   }
-  const { rows, pairs } = await evaluateCityStreet(model, bounds, body.kind === "shade", progress, readAdmin);
+  const compact = body.mapFormat === "compact";
+  const detail = compact && (!body.bounds || body.mapOnly !== true) ? 6000 : detailLimit;
+  const { rows, pairs } = await evaluateCityStreet(model, bounds, body.kind === "shade", detail, progress, readAdmin);
   if (!rows.length) return noCells();
   if (body.kind === "shade") return analyzeShade({
     bounds, shadePercent: body.shadePercent ?? 25, timeUtc: model.timeUtc, place: city.adminName, source: model.source, latitude: city.center[1],
     coverage: { cells: rows.length, pathM: rows.reduce((sum, row) => sum + row[3], 0), city: true },
     networkHeat: rows.reduce((sum, row) => sum + row[2] * row[3], 0),
+    mapDetailLimit: detail, compact,
   }, progress, () => pairs);
 
-  const map = streetMap(rows, city.center[1]);
+  const map = streetMap(rows, city.center[1], rows.length > detail, compact);
   if (body.mapOnly === true) return { ok: true, status: "complete", analysis: map };
   const summary = summarize(rows, bounds);
   return {

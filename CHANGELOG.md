@@ -1,5 +1,10 @@
 # Heatline changelog
 
+## v14 — Faster delivery of citywide maps
+
+- Send a smaller 500 m overview for dense street heat and shade results. Load 100 m cells as users zoom into the selection. All measurements continue to use the 100 m calculation grid.
+- Compress the city catalog and map response and allow more time for slower connections. London, Amsterdam and De Bilt keep their v13 model coverage.
+
 ## v13 — City walking heat and residential exposure
 
 - Use one London July 2022 case with the 100 m Landsat display grid. Existing links to the detailed case still open that event.

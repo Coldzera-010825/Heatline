@@ -1,4 +1,5 @@
 dist/server/
+dist/client/data/admin/catalog.bin
 dist/client/data/london-utci/analysis-tiles.json
 dist/client/data/london-utci/analysis-index.bin
 dist/client/mapbox-token.js

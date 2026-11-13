@@ -114,7 +114,8 @@ function timesLabel(time) {
   return time.slice(8, 10) + " July, " + time.slice(11, 16) + " UTC";
 }
 
-async function analyzeShade({ bounds, shadePercent, timeUtc = snapshot, place = "the central London pilot", source, coverage, latitude, networkHeat }, progress, readEvent) {
+async function analyzeShade({ bounds, shadePercent, timeUtc = snapshot, place = "the central London pilot", source, coverage, latitude, networkHeat,
+  mapDetailLimit = 14000, compact = false }, progress, readEvent) {
   if (bounds != null && !validBounds(bounds)) return problem("clarify", "Draw a valid rectangular area.");
   if (!Number.isFinite(shadePercent) || shadePercent < 0 || shadePercent > 100) {
     return problem("clarify", "Choose a shade conversion percentage between 0 and 100.");
@@ -130,7 +131,7 @@ async function analyzeShade({ bounds, shadePercent, timeUtc = snapshot, place = 
   let converted = 0;
   let baseline = 0;
   let scenario = 0;
-  const overview = rows.length > 14000, grid = new Map();
+  const overview = rows.length > mapDetailLimit, grid = new Map();
   const dy = 500 / 111195, dx = dy / Math.cos((latitude ?? rows[0][1]) * Math.PI / 180);
   const features = [];
   for (const [lon, lat, length, sunLength, shadeLength, base, sun, shade, ring] of rows) {
@@ -155,9 +156,12 @@ async function analyzeShade({ bounds, shadePercent, timeUtc = snapshot, place = 
         converted_m: round(changed, 1), baseline: round(base), scenario: round(base - difference / length),
         reduction: round(difference / length), sun: round(sun), shade: round(shade) } });
   }
+  const compactOverview = compact && overview;
+  const mapRows = compactOverview ? [] : undefined;
   for (const { w, s, length, changed, base, scenario } of grid.values()) {
-    features.push({ type: "Feature", geometry: { type: "Polygon", coordinates: [[[w, s], [w + dx, s], [w + dx, s + dy], [w, s + dy], [w, s]]] },
-      properties: { path_m: round(length, 1), converted_m: round(changed, 1), baseline: round(base / length), scenario: round(scenario / length), meters: 500 } });
+    const properties = { path_m: round(length, 1), converted_m: round(changed, 1), baseline: round(base / length), scenario: round(scenario / length), meters: 500 };
+    if (compactOverview) mapRows.push([Math.round(w / dx), Math.round(s / dy), properties.path_m, properties.converted_m, properties.baseline, properties.scenario]);
+    else features.push({ type: "Feature", geometry: { type: "Polygon", coordinates: [[[w, s], [w + dx, s], [w + dx, s + dy], [w, s + dy], [w, s]]] }, properties });
   }
   const before = round(baseline / total);
   const after = round(scenario / total);
@@ -181,7 +185,7 @@ async function analyzeShade({ bounds, shadePercent, timeUtc = snapshot, place = 
       selection,
       coverage: coverage && { ...coverage, pathM: Math.round(coverage.pathM), share: Math.min(1, total / coverage.pathM) },
       mapResolution: overview ? "500 m paired overview · statistics use 100 m cells" : "100 m paired grid",
-      features: { type: "FeatureCollection", features },
+      ...(compactOverview ? { mapRows, mapStep: [dx, dy] } : { features: { type: "FeatureCollection", features } }),
       method: "For each eligible 100 m cell, convert the stated fraction of existing modeled sunlit walking length to the cell’s modeled building-shade UTCI. Keep the rest of the network and the event weather fixed. The calculation uses cells with at least 20 m of both sunlit and building-shaded route. This is a single-time estimate with existing radiation inputs and no new shade geometry simulation." +
         (rows.length < 10 ? " Fewer than ten cells are eligible in this selection; the result represents only those cells." : ""),
       formula: "Scenario UTCI = Σ[baseline UTCI × route length − fraction × sunlit length × (sunlit UTCI − building-shade UTCI)] / Σ[route length]",

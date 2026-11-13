@@ -129,9 +129,13 @@ async function handleApi(request, url, env) {
     },
     cancel() { cancelled = true; },
   });
-  return new Response(stream, {
-    headers: { ...jsonHeaders, "Content-Type": "application/x-ndjson; charset=utf-8" },
-  });
+  const headers = { ...jsonHeaders, "Content-Type": "application/x-ndjson; charset=utf-8" };
+  if (url.pathname === "/api/analysis" && body.mapFormat === "compact" && /\bgzip\b/i.test(request.headers.get("accept-encoding") ?? "")) {
+    return new Response(stream.pipeThrough(new CompressionStream("gzip")), {
+      headers: { ...headers, "Content-Encoding": "gzip", Vary: "Accept-Encoding" }, encodeBody: "manual",
+    });
+  }
+  return new Response(stream, { headers });
 }
 
 export default {
