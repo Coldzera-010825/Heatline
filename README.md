@@ -2,7 +2,7 @@
 
 Heatline is an interactive climate atlas. Explore historical heatwaves from the globe to city and street level, compare residential surface heat, and estimate changes to walking heat under a shade scenario.
 
-[Live atlas](https://heatline-atlas.abrdns.com) · [Data and methods](DATA-METHODS.md) · [Third-party notices](THIRD_PARTY.md)
+[Live atlas](https://heatline-atlas.abrdns.com) · [Releases](https://github.com/Coldzera-010825/Heatline/releases) · [Data and methods](DATA-METHODS.md) · [Third-party notices](THIRD_PARTY.md)
 
 ## Run locally
 

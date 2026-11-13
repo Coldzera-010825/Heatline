@@ -54,7 +54,7 @@
     <section id="weather-reference" aria-label="London air-temperature reference" hidden></section>
     <section id="archive-workspace" aria-label="Historical case data" hidden>
       <div class="data-controls">
-        <label for="archive-layer">Layer</label><select id="archive-layer"></select>
+        <div id="archive-layer-row" class="archive-input-row"><label for="archive-layer">Layer</label><select id="archive-layer"></select></div>
         <div id="archive-model-row" class="archive-input-row" hidden><label for="archive-model">Air model</label><select id="archive-model"></select></div>
         <div id="archive-timeline" class="archive-input-row"><button id="archive-play" class="secondary-action" type="button" aria-label="Play archived dates">▶</button>
           <label for="archive-date">UTC day</label><select id="archive-date"></select>
@@ -91,6 +91,7 @@
       <div class="area-card">
         <strong id="area-name"></strong>
         <p id="area-hint">18 July 2022 · 10:52 UTC</p>
+        <p id="area-coverage" class="data-note" hidden></p>
         <div class="area-controls">
           <button type="button" id="draw-area" aria-pressed="false">Draw area</button>
           <button type="button" id="full-area">Study area</button>
@@ -107,7 +108,7 @@
         <p>Apply each paired cell’s building-shade UTCI to that share of sunlit walking length. Event weather and other routes stay fixed.</p>
       </div>
       <button type="button" id="run-analysis" class="run-analysis"><span id="run-label"></span><span aria-hidden="true">↗</span></button>
-      <button type="button" id="archive-groups" class="secondary-action" hidden>Compare resident groups</button>
+      <button type="button" id="archive-groups" class="secondary-action" hidden>Run population exposure</button>
     </section>
     <section id="regional-comparison" aria-label="Regional heatwave comparison" hidden>
       <div class="data-controls">

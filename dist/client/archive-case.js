@@ -213,7 +213,7 @@
   }
 
   function preview(state, stage) {
-    const panel = R.element("div"), weather = weatherEvidence(state), snapshot = state.event?.snapshot, street = state.street;
+    const panel = R.element("div"), weather = weatherEvidence(state), snapshot = state.event?.snapshot;
     if (stage === 0) {
       const { core, window } = state.event;
       panel.append(R.element("p", (core ? "Event core · " + labelDay(core[0]) + "–" + labelDay(core[1]) :
@@ -234,14 +234,9 @@
         (snapshot.inCore ? "event-core snapshot" : "outside the event core") +
         " · " + percent(snapshot.summary.match) + " of estimated residents matched.", "data-note"));
     }
-    if (stage === 1) panel.append(R.element("p", "GHS-POP 2020 estimates the residential population inside " + state.admin.adminName +
-      ". No matched age, activity limitation or deprivation groups are available for this case.", "data-note"));
-    if (stage >= 2 && street) panel.append(R.element("p", street.label + " · " + street.timeUtc.slice(0, 16).replace("T", " ") +
-      " UTC · " + (stage === 2 ? street.gridCells + " walking-network cells" : street.pairedCells + " paired shade cells") + " · pilot coverage", "data-note"));
-    if (stage >= 2 && !street) panel.append(R.element("p", (stage === 2 ?
-      "Needs a time-matched 5 m terrain and height model, walking routes and hourly weather to simulate pedestrian UTCI." :
-      "Needs sunlit and building-shade UTCI and paired walking lengths from the same model run.") +
-      (state.otherStreet ? " Open another case with a modelled pilot." : ""), "data-note"));
+    if (stage === 1) panel.append(R.element("p", snapshot?.census?.coverage > 0 ?
+      state.admin.census.source + " · " + percent(snapshot.census.coverage) + " of allocated census residents match this overpass." :
+      snapshot ? "The overpass has no valid match for the available census groups." : "No Landsat overpass available for this case.", "data-note"));
     return panel;
   }
 

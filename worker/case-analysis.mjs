@@ -2,12 +2,15 @@ import { method, summarize, validBounds } from "./analysis.mjs";
 import { analyzeShade } from "./event-analysis.mjs";
 import { evaluateStreetGrid } from "./utci.mjs";
 import { matchesSnapshot, requestTime, viewIntent } from "./request-time.mjs";
+import { analyzePopulation } from "./london-population.mjs";
+import { matchedPoints, residentialTiles } from "./residential-map.mjs";
+import { analyzeCityStreet } from "./city-street.mjs";
 
 const missing = {
   station: ["quality-screened NOAA ISD hourly station observations for this event"],
   stationPair: ["a second station with overlapping quality-screened UTC observations"],
   population: ["a cloud-screened Landsat surface-temperature snapshot matching residential population cells inside the administrative boundary"],
-  groups: ["local census group counts for age, activity limitation and deprivation", "a harmonised group-to-Landsat match for this event"],
+  groups: ["local census group counts matched to an available Landsat scene"],
   exposure: ["event-hour weather, terrain and building/canopy heights", "a SOLWEIG pedestrian UTCI simulation matched to a walking network"],
   shade: ["paired sunlit and building-shade UTCI for the same event time", "represented sunlit and shaded route lengths for each paired cell"],
 };
@@ -85,6 +88,76 @@ function populationSummary(points, temps, bounds, { threshold, bins }) {
     histogram: matched ? lengths.map(n => n / matched) : [] };
 }
 
+function compareResidents(city, snapshot, points, temperatures, census, bounds, body, bins) {
+  const labels = city.census.groups;
+  const group = body.group ?? "older", reference = body.reference ?? (group === "all" ? "older" : "all");
+  if (!Object.hasOwn(labels, group) || !Object.hasOwn(labels, reference) || group === reference) {
+    return problem("clarify", "Choose two different supported groups: " + Object.values(labels).join("; ") + ".");
+  }
+  const rows = [...matchedPoints(points, temperatures, bounds, census, city.census.keys)];
+  const totals = Object.fromEntries(Object.keys(labels).map(key => [key, { count: 0, matched: 0, heat: 0, bins: Array(bins.length + 1).fill(0) }]));
+  const byDistrict = new Map();
+  let matched = 0;
+  for (const [, , temperature, weights, , district] of rows) {
+    if (Number.isFinite(temperature)) matched++;
+    const i = bins.findIndex(edge => temperature < edge);
+    for (const [key, total] of Object.entries(totals)) {
+      const n = weights[key];
+      if (!Number.isFinite(n)) continue;
+      total.count += n;
+      if (!Number.isFinite(temperature)) continue;
+      total.matched += n;
+      total.heat += temperature * n;
+      total.bins[i === -1 ? bins.length : i] += n;
+    }
+    if (body.rank && district && Number.isFinite(weights[group])) {
+      const total = byDistrict.get(district) ?? { count: 0, matched: 0, heat: 0 };
+      const n = weights[group];
+      total.count += n;
+      if (Number.isFinite(temperature)) {
+        total.matched += n;
+        total.heat += temperature * n;
+      }
+      byDistrict.set(district, total);
+    }
+  }
+  if (!matched) return problem("empty", "This area has no Census population cells matched to clear Landsat values.");
+  const format = n => Number(n.toFixed(2));
+  const groups = Object.fromEntries(Object.entries(totals).map(([key, t]) => [key, {
+    label: labels[key], count: Math.round(t.count), matched: Math.round(t.matched), mean: t.matched ? format(t.heat / t.matched) : null,
+    coverage: t.count ? t.matched / t.count : null, atLeast45: t.matched ? Math.round(t.bins.at(-1)) : null,
+  }]));
+  const a = totals[group], b = totals[reference], compared = a.matched && b.matched;
+  const delta = compared ? format(a.heat / a.matched - b.heat / b.matched) : null;
+  const place = bounds ? "the selected area" : city.adminName;
+  const bandLabels = ["<" + bins[0], ...bins.slice(1).map((end, i) => bins[i] + "–" + end), "≥" + bins.at(-1)];
+  const ranked = body.rank ? [...byDistrict].filter(([, total]) => total.matched > 0)
+    .map(([code, total]) => ({
+      code, name: city.census.districts[code], mean: format(total.heat / total.matched),
+      matched: Math.round(total.matched), coverage: total.matched / total.count,
+    })).sort((a, b) => (body.rankOrder === "asc" ? a.mean - b.mean : b.mean - a.mean) || a.name.localeCompare(b.name)) : null;
+  return { ok: true, status: "complete",
+    reply: ranked?.length ? ranked[0].name + " had the " + (body.rankOrder === "asc" ? "lowest" : "highest") +
+      " matched residential LST for " + labels[group].toLowerCase() + " (" + valueLabel(ranked[0].mean) + ")." :
+      ranked ? "No districts have matched residents for this group." :
+      compared ? "In " + place + ", matched residential LST was " + valueLabel(groups[group].mean) + " for " +
+      labels[group].toLowerCase() + " and " + valueLabel(groups[reference].mean) + " for " + labels[reference].toLowerCase() +
+      ". First minus second: " + valueLabel(delta) + "." : "At least one selected group has no matched residents in this area.",
+    event: {
+      kind: "population", place, timeUtc: snapshot.datetime, inCore: snapshot.inCore, censusYear: city.census.year,
+      censusSource: city.census.source, areaUnit: "allocated population cells", areas: rows.length, matched, groups, group, reference, delta,
+      ranked, rankOrder: body.rankOrder,
+      mapLayers: [["residents", "Surface LST"], ...Object.keys(labels).filter(key => key !== "all").map(key => [
+        key, ({ older: "65+ share", limited: "Disability share", poverty: "Poverty share" })[key] ?? labels[key],
+      ])],
+      distribution: bandLabels.map((label, i) => ({ label, ...Object.fromEntries(Object.entries(totals).map(([key, t]) =>
+        [key, t.matched ? t.bins[i] / t.matched : null])) })),
+      metricTiles: residentialTiles(rows, city.center[1]),
+      method: city.census.method + " " + city.census.source + ". Match allocated residents to QA-screened Landsat LST on the dated overpass.",
+    },
+  };
+}
+
 export async function analyzeArchive(body, progress, read, readAdmin) {
   const data = await loadArchive(body.archiveCase, read);
   if (!data) return problem("clarify", "Choose a city and an event from the case archive.");
@@ -97,10 +170,11 @@ export async function analyzeArchive(body, progress, read, readAdmin) {
   if (["station", "weather"].includes(kind) && body.date != null && !availableDays.has(body.date)) return problem("clarify", "Choose a UTC date from this event.");
   const date = body.date ?? data.peak;
   switch (kind) {
-    case "groups":
-      return unavailable(data, kind, "The residential LST analysis covers all matched residents for this case.");
     case "exposure":
     case "shade": {
+      const cityModel = catalog.cityStreetModels?.[data.region]?.[data.event];
+      if (cityModel && body.coverage !== "pilot") return analyzeCityStreet(body, cityModel, city, progress, readAdmin);
+      if (body.coverage === "city") return problem("unavailable", "Full city radiation inputs are unavailable for this event. Use the outlined model coverage.");
       const models = catalog.streetModels?.[data.region];
       const pilot = models?.[data.event];
       if (!pilot) return unavailable(data, kind, Object.keys(models ?? {}).length ?
@@ -112,7 +186,9 @@ export async function analyzeArchive(body, progress, read, readAdmin) {
       progress("Computing UTCI from modelled radiation and event-hour weather…");
       const grid = evaluateStreetGrid(samples, pilot.weather, (lon, lat) => inside(lon, lat, selection));
       if (kind === "shade") return analyzeShade({ bounds: selection, shadePercent: body.shadePercent ?? 25,
-        timeUtc: pilot.timeUtc, place: pilot.label, source: pilot.source }, progress, () => grid.pairs);
+        timeUtc: pilot.timeUtc, place: pilot.label, source: pilot.source,
+        coverage: { cells: grid.rows.length, pathM: grid.rows.reduce((sum, row) => sum + row[3], 0), city: false },
+      }, progress, () => grid.pairs);
       progress("Weighting pedestrian UTCI by walking length in the selection…");
       const summary = summarize(grid.rows, selection);
       if (!summary) return problem("empty", "No modelled walking-network cells in this selection. Move the selection into the outlined pilot.");
@@ -158,11 +234,29 @@ export async function analyzeArchive(body, progress, read, readAdmin) {
       return complete(data, "archive-weather", reply, { date, air: day, source: model?.source, point, summary: data.point?.summary,
         method: "Regional air-temperature context weights valid model cells by GHS-POP 2020 centres within the administrative boundary. Climate normals and P90 refer to the single archived reference grid point." });
     }
-    case "population": {
+    case "population":
+    case "groups": {
       const snapshot = event.snapshot;
       if (!snapshot) return unavailable(data, "population");
       if (!matchesSnapshot(snapshot.datetime, body.date, body.time)) {
         return problem("unavailable", "The archived Landsat overpass is " + dateLabel(snapshot.datetime) + ". There is no matched residential LST at the requested time.");
+      }
+      if (kind === "groups") {
+        if (!city.census || !snapshot.census) return unavailable(data, "groups");
+        if (data.region === "London" && snapshot.census.file) {
+          const result = await analyzePopulation({ ...body, timeUtc: snapshot.datetime }, progress, () => readAdmin(snapshot.census.file, "packed-json"));
+          if (result.ok) result.event.inCore = snapshot.inCore;
+          return result;
+        }
+        if (!city.census.file) return unavailable(data, "groups");
+        if (body.rank && (!city.census.districts || bounds) || body.borough) {
+          return problem("clarify", city.census.districts ? "Choose the full city to rank districts." :
+            "District group rankings are unavailable for this city. Compare groups for the city or a drawn area.");
+        }
+        progress("Applying census group counts to the matched residential grid…");
+        const [points, temperatures, census] = await Promise.all([readAdmin(city.population, "packed-json"),
+          readAdmin(snapshot.surface, "packed-json"), readAdmin(city.census.file, "packed-json")]);
+        return compareResidents(city, snapshot, points, temperatures, census, bounds, body, catalog.comparison.bins);
       }
       progress("Matching GHS-POP 100 m residential cells to clear Landsat pixels…");
       const [points, temps] = await Promise.all([readAdmin(city.population, "packed-json"), readAdmin(snapshot.surface, "packed-json")]);
@@ -174,6 +268,7 @@ export async function analyzeArchive(body, progress, read, readAdmin) {
         dateLabel(snapshot.datetime) + " Landsat snapshot averaged " + valueLabel(surface.mean) + " across matched residents (" + share(surface.match) +
         " of the estimated residential population)." + (snapshot.inCore ? "" : " This snapshot falls outside the heatwave core."), {
         surface, bins: catalog.comparison.bins, timeUtc: snapshot.datetime, inCore: snapshot.inCore, bounds, place: city.adminName,
+        metricTiles: residentialTiles(matchedPoints(points, temps, bounds), city.center[1]),
         method: "Sample quality-screened Landsat LST at the centres of native 100 m GHS-POP 2020 cells inside the boundary and any drawn selection. Divide the sum of LST × estimated residents by matched residents. Coverage includes all resident estimates in the denominator. The estimate describes surface heat near homes, not air temperature, actual activity or health outcomes.",
       });
     }
@@ -212,7 +307,7 @@ export async function archiveChat(body, progress, read, run, normalChat) {
       records.find(item => item.peak.slice(5, 7) === "08") ?? records[0] :
       records.find(item => !item.pointOnly) ?? records[0];
     if (explicitYear && !record) return { ...problem("unavailable", city.name + " has no archived case for " + explicitYear + "."), provider: "local" };
-    const event = city.id === "London" && record?.id === "E3_2022-07" ? "london-detail" : record?.id;
+    const event = record?.id;
     return dispatch("open-case", { region: city.id, event }, "Opening the " + city.name + " case.");
   }
   if (mentions.some(city => city.id !== data.region)) {
@@ -228,7 +323,20 @@ export async function archiveChat(body, progress, read, run, normalChat) {
     if (explicitDate < data.start || explicitDate > data.end) return { ...problem("unavailable", "That date is outside the selected case."), provider: "local" };
     return dispatch("archive-day", { date: explicitDate }, "Showing the weather timeline for " + explicitDate + " UTC.");
   }
-  const groups = /\b(?:boroughs?|district rank|older residents|aged 65|age group|deprivation|imd|subgroups?|vulnerable (?:people|groups?)|disab\w*|activity limit)\b|行政区|老年|年龄|剥夺|脆弱人群|活动受限/.test(query);
+  const groupPatterns = [
+    ["older", /\b(?:older residents|aged 65|65\+|age group|seniors?)\b|老年|年龄|65岁/],
+    ["limited", /\b(?:disab\w*|activity limit\w*|limited activities)\b|活动受限|残疾/],
+    ["poverty", /\b(?:poverty|low income)\b|贫困|低收入/],
+    ["leastDeprived", /\b(?:least deprived|imd (?:deciles )?9)\b/],
+    ["deprived", /\b(?:most deprived|imd (?:deciles )?1|deprivation)\b|剥夺/],
+    ["all", /\b(?:all(?: usual)? residents|all residents|general population)\b|全体居民/],
+  ];
+  const namedGroups = groupPatterns.flatMap(([key, pattern]) => {
+    const match = query.match(pattern);
+    return match ? [[key, match.index]] : [];
+  }).sort((a, b) => a[1] - b[1]).map(([key]) => key);
+  const rank = /\b(?:boroughs?|districts?)\b|行政区/.test(query) && /\b(?:rank\w*|highest|lowest|hottest|coolest|which)\b|排名|最高|最低/.test(query);
+  const groups = namedGroups.some(group => group !== "all") || rank || /\b(?:subgroups?|resident groups|vulnerable (?:people|groups?))\b|脆弱人群/.test(query);
   const show = /\b(?:show|open|switch|display|layer|map)\b|显示|打开|切换|图层/.test(query);
   const stationRequest = /\b(?:stations?|noaa|isd|hourly observations?)\b|气象站|站点/.test(query);
   const compare = /\b(?:compar\w*|versus|another station|other station)\b|比较|对比/.test(query);
@@ -274,8 +382,8 @@ export async function archiveChat(body, progress, read, run, normalChat) {
   if (!kind && /\b(?:population|expos\w*|residents?)\b|人口|暴露/.test(query)) kind = "population";
   if (!kind && /\b(?:weather|temperature|heatwave|anomal\w*|p90)\b|气温|气象|热浪/.test(query)) kind = "weather";
   if (!kind) return { ...problem("clarify", "Try opening LST, analysing station weather, or calculating population exposure for the selected case."), provider: "local" };
-  const areaKind = ["shade", "exposure", "population"].includes(kind);
-  const full = /\b(?:full|entire|whole|citywide|all of|study area|administrative area|model coverage|whole pilot)\b|全市|全域|整个|完整样区/.test(query);
+  const areaKind = ["shade", "exposure", "population", "groups"].includes(kind);
+  const full = /\b(?:full|entire|whole|citywide|all of|study area|administrative area|model coverage|whole pilot)\b|全城|全市|全域|整个|完整样区/.test(query);
   const selected = /\b(?:my selection|selected area|selected rectangle|drawn area|this (?:area|selection|rectangle)|here)\b|选区|框选|这里|这个区域/.test(query);
   if (areaKind && selected && !full && !validBounds(body.bounds)) {
     return { ...problem("clarify", "Draw an area first, or ask for the full available area."), provider: "local" };
@@ -288,7 +396,13 @@ export async function archiveChat(body, progress, read, run, normalChat) {
   const request = { kind, archiveCase, date: areaKind ? explicitDate : date, time,
     model: body.model, station: body.station, comparison: body.comparison, shadePercent,
     compare: kind === "station" && compare, stationPeriod: kind === "station" && explicitDate ? "day" : body.stationPeriod,
-    scope: areaKind && full ? "full" : undefined, bounds: areaKind && !full ? body.bounds : undefined };
+    scope: areaKind && (full || rank) ? "full" : undefined, bounds: areaKind && !full && !rank ? body.bounds : undefined,
+    ...(["shade", "exposure"].includes(kind) && /\b(?:whole (?:city|municipality)|citywide|entire city|full city|administrative area)\b|全市|全城|全域/.test(query)
+      ? { coverage: "city" } : {}),
+    ...(kind === "groups" ? { group: namedGroups[0] ?? body.group, reference: namedGroups[1] ??
+      (namedGroups[0] === "all" ? "older" : namedGroups.length ? "all" : body.reference), rank,
+      rankOrder: /\b(?:lowest|coolest)\b|最低/.test(query) ? "asc" : "desc" } : {}),
+  };
   if (body.dispatch) return dispatch("run-archive", request);
   return { ...(await run(request, progress)), provider: "local" };
 }

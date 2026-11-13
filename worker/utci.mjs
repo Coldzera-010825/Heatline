@@ -17,7 +17,9 @@ export function utciAtWeather({ airC, humidity, wind }) {
   }
   return meanRadiant => {
     const difference = meanRadiant - airC;
-    return coefficients.reduceRight((value, coefficient) => value * difference + coefficient, 0);
+    let value = coefficients[6];
+    for (let degree = 5; degree >= 0; degree--) value = value * difference + coefficients[degree];
+    return value;
   };
 }
 
@@ -29,12 +31,16 @@ export function evaluateStreetGrid(grid, weather, includes = () => true) {
   for (const [lon, lat, , , ring, samples] of grid.rows) {
     if (!includes(lon, lat)) continue;
     const length = [0, 0, 0, 0], heat = [0, 0, 0, 0];
-    for (const [tmrt, ...weights] of samples) {
+    for (const [tmrt, sun, building, canopy, partial] of samples) {
       const temp = utci(tmrt);
-      for (const [i, weight] of weights.entries()) {
-        length[i] += weight;
-        heat[i] += temp * weight;
-      }
+      length[0] += sun;
+      length[1] += building;
+      length[2] += canopy;
+      length[3] += partial;
+      heat[0] += temp * sun;
+      heat[1] += temp * building;
+      heat[2] += temp * canopy;
+      heat[3] += temp * partial;
     }
     const total = length.reduce((a, b) => a + b, 0);
     const baseline = heat.reduce((a, b) => a + b, 0) / total;

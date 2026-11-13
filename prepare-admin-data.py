@@ -310,8 +310,11 @@ def main():
     parser.add_argument("--sources", type=Path)
     parser.add_argument("--street-index-only", action="store_true")
     args = parser.parse_args()
+    retained = {}
     if args.street_index_only:
-        cities = read(OUT / "catalog.json")["cities"]
+        catalog = read(OUT / "catalog.json")
+        cities = catalog["cities"]
+        retained = {key: value for key, value in catalog.items() if key not in {"cities", "streetModels"}}
     else:
         if not args.sources:
             parser.error("--sources is required unless refreshing the street index")
@@ -333,7 +336,7 @@ def main():
          "threshold": THRESHOLD, "bins": BINS}, "sources": {
          "population": "https://human-settlement.emergency.copernicus.eu/ghs_pop2023.php",
          "landcover": "https://esa-worldcover.org/en/data-access",
-         "lst": "https://www.usgs.gov/landsat-missions/landsat-surface-temperature"}})
+         "lst": "https://www.usgs.gov/landsat-missions/landsat-surface-temperature"}, **retained})
     print("Street models:", {city: list(events) for city, events in models.items()}, flush=True)
     for key, city in cities.items() if not args.street_index_only else []:
         print(key, city["populationCount"], [(k, e["snapshot"]["summary"]["match"], e["snapshot"]["datetime"][:10])

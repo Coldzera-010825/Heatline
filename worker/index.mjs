@@ -1,7 +1,8 @@
-import { analyzeArea } from "./analysis.mjs";
+import { analyzeArea, validBounds } from "./analysis.mjs";
 import { chat } from "./assistant.mjs";
 import { analyzePopulation, analyzeShade, analyzeStation } from "./event-analysis.mjs";
 import { analyzeArchive, archiveChat, compareStreet } from "./case-analysis.mjs";
+import { analyzeCityStreet } from "./city-street.mjs";
 
 const maxBodyBytes = 16 * 1024;
 const encoder = new TextEncoder();
@@ -70,7 +71,14 @@ async function handleApi(request, url, env) {
   const readCase = (filename, format) => readAsset("cases", filename, format);
   const readAdmin = (filename, format) => readAsset("admin", filename, format);
   const runArchive = (options, progress) => analyzeArchive(options, progress, readCase, readAdmin);
-  function analyze(options, progress) {
+  async function analyze(options, progress) {
+    if (options.coverage === "city" && (options.kind === "shade" || options.kind === "exposure")) {
+      if (options.bounds != null && !validBounds(options.bounds)) return { ok: false, status: "clarify", reply: "Draw a valid rectangular area." };
+      const catalog = await readAdmin("catalog.json", "json");
+      const model = catalog.cityStreetModels?.London?.["E3_2022-07"];
+      if (model) return analyzeCityStreet(options, model, catalog.cities.London, progress, readAdmin);
+      return { ok: false, status: "unavailable", reply: "Full city radiation inputs are unavailable for this event." };
+    }
     switch (options.kind) {
       case "street-comparison": return compareStreet(options, progress, readAdmin);
       case "station": return analyzeStation(options, progress, readEvent);
@@ -84,6 +92,11 @@ async function handleApi(request, url, env) {
   async function run(progress) {
     try {
       if (Object.hasOwn(body, "archiveCase")) {
+        const { region, event } = body.archiveCase ?? {};
+        if (region === "London" && ["E3_2022-07", "london-detail"].includes(event) &&
+            url.pathname === "/api/analysis" && (event === "london-detail" || body.kind === "groups")) {
+          return analyze({ ...body, kind: body.kind === "groups" ? "population" : body.kind }, progress);
+        }
         return await (url.pathname === "/api/chat" ?
           archiveChat(body, progress, readCase, runArchive, options => chat(options, progress, env, analyze)) :
           runArchive(body, progress));
