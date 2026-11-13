@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f0f0e">
+<title>Heatline — Extreme Events Atlas</title>
+<link rel="icon" href="data:,">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;1,500&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.33.0/mapbox-gl.css" rel="stylesheet">
+<link rel="stylesheet" href="terraheat-mapbox.css">
+<link rel="stylesheet" href="heatline.css">
+</head>
+<body>
+<main id="app">
+<div id="map" aria-label="Interactive 3D map of historical heatwaves and exposure"></div>
+<div class="map-vignette" aria-hidden="true"></div>
+<header class="masthead">
+  <a class="brand" id="home" href="#globe" aria-label="Heatline globe view"><span class="brand-mark"><i></i></span><span><b>Heatline</b><small>Extreme events atlas</small></span></a>
+  <div class="case-title" id="case-title">
+    <div class="case-picker"><select id="view-mode" aria-label="Analysis mode" disabled><option value="single">Single city case</option><option value="comparison">Global city comparison</option></select></div>
+    <span class="case-separator" id="case-city-separator" aria-hidden="true">·</span>
+    <div class="case-picker" id="case-city-picker"><select id="case-city" aria-label="City" disabled><option value="London">London</option></select></div>
+    <span class="case-separator" aria-hidden="true">·</span>
+    <span id="case-period">City archive</span>
+  </div>
+  <div class="mast-actions"><button class="icon-button" id="globe" type="button">GLOBAL VIEW</button></div>
+</header>
+<section id="intro" class="atlas-intro">
+  <span class="eyebrow">HISTORICAL HEATWAVES / 2018–2026</span>
+  <h1>Extreme heat,<br> <em>uneven exposure.</em></h1>
+  <p>Trace a heatwave from the globe to the city. See who lives in hotter places, what heat feels like on foot and where shade could help.</p>
+  <div id="city-cases" class="city-cases" aria-label="Available city cases"></div>
+  <button class="primary" id="enter" type="button" disabled><b id="enter-label">EXPLORE LONDON</b> <span>↗</span></button>
+  <button class="secondary-action" id="intro-compare" type="button" disabled>Compare cities ↗</button>
+  <div id="map-status" role="status">Connecting to the Mapbox globe…</div>
+  <div id="global-map-controls" hidden>
+    <section id="map-controls" class="map-controls" aria-label="Map controls" hidden>
+      <div id="layer-controls" class="layer-controls" hidden><label for="layer-select">Layer</label><select id="layer-select"></select></div>
+      <div id="timeline-hl" class="atlas-timeline"><button id="play-days" type="button" aria-label="Play heatwave days">▶</button><label for="day">UTC day</label><input id="day" type="range" min="13" max="19" value="19"><output id="day-value" for="day">19 Jul</output></div>
+      <button id="spin-globe" type="button" aria-pressed="true" hidden>↻ Globe rotation</button>
+    </section>
+  </div>
+  <details id="global-method"><summary>Data and method</summary><p id="global-method-copy"></p></details>
+</section>
+<aside id="analysis-panel" class="analysis-panel" aria-label="Analysis workspace" hidden>
+  <div id="analysis-scroll" class="analysis-scroll">
+    <div id="chapter-index" class="eyebrow"></div>
+    <h1 id="chapter-title"></h1><p id="chapter-copy"></p>
+    <div id="case-event-controls" class="layer-controls case-event-controls" hidden>
+      <label for="case-event">Historical case</label><select id="case-event"></select>
+    </div>
+    <div id="chapter-map-controls"></div>
+    <section id="weather-reference" aria-label="London air-temperature reference" hidden></section>
+    <section id="archive-workspace" aria-label="Historical case data" hidden>
+      <div class="data-controls">
+        <label for="archive-layer">Layer</label><select id="archive-layer"></select>
+        <div id="archive-model-row" class="archive-input-row" hidden><label for="archive-model">Air model</label><select id="archive-model"></select></div>
+        <div id="archive-timeline" class="archive-input-row"><button id="archive-play" class="secondary-action" type="button" aria-label="Play archived dates">▶</button>
+          <label for="archive-date">UTC day</label><select id="archive-date"></select>
+        </div>
+        <p id="archive-time-note" class="data-note" hidden></p>
+      </div>
+      <button id="archive-weather" class="run-analysis" type="button">Analyse event weather <span aria-hidden="true">↗</span></button>
+      <div id="archive-preview"></div>
+      <section id="archive-stations" class="data-controls archive-stations" aria-label="NOAA station observations">
+        <label for="archive-station">NOAA ISD station</label><select id="archive-station"></select>
+        <label for="archive-period">Observations</label><select id="archive-period"><option value="event">Full event</option><option value="day">Selected UTC day</option></select>
+        <div id="archive-station-preview"></div>
+        <button id="archive-analyse-station" class="secondary-action" type="button">Analyse station</button>
+        <label id="archive-station-other-label" for="archive-station-other" hidden>Compare with</label>
+        <select id="archive-station-other" hidden></select>
+        <button id="archive-compare-stations" class="secondary-action" type="button">Compare stations</button>
+      </section>
+    </section>
+    <section id="station-analysis" hidden aria-label="WOW station weather">
+      <label for="station">WOW station</label><select id="station"></select>
+      <label for="station-period">Period</label><select id="station-period"><option value="event">13–19 July 2022</option><option value="day">Selected UTC day</option></select>
+      <p id="station-quality" class="data-note" hidden></p>
+      <div id="station-observations"></div>
+      <button id="analyse-station" class="run-analysis" type="button">Analyse station <span aria-hidden="true">↗</span></button>
+      <div id="station-compare" hidden>
+        <label for="comparison-station">Compare over the same UTC hours</label><select id="comparison-station"></select>
+        <button id="compare-stations" type="button">Compare stations</button>
+      </div>
+    </section>
+    <section id="area-analysis" aria-label="Area analysis" hidden>
+      <ol class="analysis-steps" aria-label="Analysis progress">
+        <li id="step-area" aria-current="step">Area</li><li id="step-run">Analysis</li><li id="step-result">Results</li>
+      </ol>
+      <div class="area-card">
+        <strong id="area-name"></strong>
+        <p id="area-hint">18 July 2022 · 10:52 UTC</p>
+        <div class="area-controls">
+          <button type="button" id="draw-area" aria-pressed="false">Draw area</button>
+          <button type="button" id="full-area">Study area</button>
+        </div>
+      </div>
+      <div id="population-controls" class="data-controls" hidden>
+        <label for="population-group">Compare group</label><select id="population-group"></select>
+        <label for="population-reference">Against</label><select id="population-reference"></select>
+        <button type="button" id="rank-boroughs" class="secondary-action">Rank London districts by group LST</button>
+      </div>
+      <div id="shade-controls" hidden>
+        <label for="shade-percent">Sunlit route length converted to shade <output for="shade-percent" id="shade-value">25%</output></label>
+        <input id="shade-percent" type="range" min="0" max="100" step="any" value="25">
+        <p>Apply each paired cell’s building-shade UTCI to that share of sunlit walking length. Event weather and other routes stay fixed.</p>
+      </div>
+      <button type="button" id="run-analysis" class="run-analysis"><span id="run-label"></span><span aria-hidden="true">↗</span></button>
+      <button type="button" id="archive-groups" class="secondary-action" hidden>Compare resident groups</button>
+    </section>
+    <section id="regional-comparison" aria-label="Regional heatwave comparison" hidden>
+      <div class="data-controls">
+        <label for="regional-event">Historical event</label><select id="regional-event"></select>
+        <label for="regional-metric">Exposure measure</label><select id="regional-metric">
+          <option value="surface">Residential surface heat · LST</option><option value="street">Walking heat stress · UTCI</option>
+        </select>
+        <div class="regional-pair">
+          <div><label for="regional-first">Study area A</label><select id="regional-first"></select></div>
+          <div><label for="regional-second">Study area B</label><select id="regional-second"></select></div>
+        </div>
+      </div>
+      <div id="regional-result" role="region" aria-label="City heat exposure comparison"></div>
+    </section>
+    <div id="analysis-progress" class="analysis-progress" role="status" hidden><span aria-hidden="true"></span><p></p></div>
+    <p id="analysis-notice" class="analysis-notice" role="status" hidden></p>
+    <section id="analysis-result" class="analysis-result" aria-label="Analysis result" hidden></section>
+    <div id="actions" class="actions"></div>
+    <details id="method"><summary>Data and method</summary><p id="method-copy"></p></details>
+  </div>
+  <footer id="analysis-footer" hidden><button id="clear-analysis" type="button">Clear analysis</button></footer>
+</aside>
+<aside id="guide" class="atlas-guide" aria-label="Atlas conversation" hidden>
+  <header><span class="atlas-identity"><i aria-hidden="true"></i><b>Atlas</b></span><span id="assistant-mode" hidden></span></header>
+  <div id="guide-scroll" class="guide-scroll">
+    <p id="chat-empty" class="chat-empty">Ask Atlas to explore a layer, compare stations, or run an analysis on the map.</p>
+    <div id="conversation" class="conversation" role="log" aria-label="Conversation"></div>
+  </div>
+  <div class="atlas-chat"><div id="suggestions" class="suggestions" aria-label="Suggested Atlas prompts"></div>
+  <form id="prompt-form"><input id="prompt" aria-label="Ask Atlas" placeholder="Ask Atlas about the heatwave…" maxlength="1000"><button aria-label="Send question">↗</button></form></div>
+</aside>
+<div id="panel-switch" class="panel-switch" role="group" aria-label="Map workspace" hidden>
+  <button type="button" id="show-analysis-panel" aria-controls="analysis-panel" aria-pressed="true">Analysis</button>
+  <button type="button" id="show-atlas-panel" aria-controls="guide" aria-pressed="false">Atlas</button>
+</div>
+<div id="legend-hl" class="atlas-legend" aria-label="Map legend" hidden>
+  <b id="legend-label"></b><div id="legend-ramp"></div><div id="legend-ends"></div><ul id="legend-classes" hidden></ul>
+  <div id="legend-stations" hidden><span>Review flag</span><span>Selected</span><span>Comparison</span></div>
+  <small id="provenance"></small><small id="grid-status" role="status" hidden></small><small id="bar-note" hidden></small>
+  <div id="grid-view-toggle" class="view-toggle" role="group" aria-label="Grid display" hidden>
+    <button type="button" id="view-flat" aria-pressed="true">Flat grid</button>
+    <button type="button" id="view-bars" aria-pressed="false">3D bars</button>
+  </div>
+</div>
+<nav id="chapter-nav" class="atlas-nav" aria-label="Story chapters" hidden></nav>
+<div id="layer-credit" class="layer-credit"></div>
+</main>
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.33.0/mapbox-gl.js"></script>
+<script src="mapbox-token.js"></script>
+<script src="street-grid.js"></script>
+<script src="event-layers.js"></script>
+<script src="atlas-results.js"></script>
+<script src="vendor/polygon-clipping.js"></script>
+<script src="archive-case.js"></script>
+<script src="terraheat-mapbox.js"></script>
+</body>
+</html>

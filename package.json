@@ -1,0 +1,10 @@
+{
+  "name": "heatline",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build-worker.mjs",
+    "start": "node serve-local.mjs",
+    "test": "node test-admin-api.mjs"
+  }
+}

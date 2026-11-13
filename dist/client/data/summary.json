@@ -1,0 +1,57 @@
+{
+  "time_utc": "2022-07-18T10:52:15Z",
+  "forcing": {
+    "air_c": 33.080416666666665,
+    "relative_humidity_pct": 26.516666666666666,
+    "wind_10m_ms": 3.9586805555555555,
+    "global_shortwave_wm2": 792.0,
+    "grid_lon_lat": [
+      -0.1,
+      51.5
+    ]
+  },
+  "osm": "Current OSM extract (fallback); way-level polygons only",
+  "engine": "0.1.0b96",
+  "grid_cells": 190,
+  "by_shade": {
+    "sunlit": {
+      "path_m": 54696,
+      "tmrt": 63.09,
+      "utci": 37.58
+    },
+    "building_shade": {
+      "path_m": 29852,
+      "tmrt": 37.9,
+      "utci": 31.63
+    },
+    "canopy_shade": {
+      "path_m": 23230,
+      "tmrt": 38.45,
+      "utci": 31.76
+    }
+  },
+  "within_cell": {
+    "building_shade": {
+      "cells": 159,
+      "median_delta_utci": 6.01,
+      "fraction_positive": 1.0
+    },
+    "canopy_shade": {
+      "cells": 179,
+      "median_delta_utci": 5.87,
+      "fraction_positive": 1.0
+    }
+  },
+  "grid_utci_p10_p90": [
+    33.33,
+    36.15
+  ],
+  "lst_comparison": {
+    "cells": 190,
+    "pearson_r": -0.16,
+    "lst_c_range": [
+      31.36,
+      47.19
+    ]
+  }
+}
