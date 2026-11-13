@@ -50,7 +50,9 @@
   let stations = [], activeStation, comparison, observationRequest = 0, pairByCell = new Map();
   let drawing = false, corner, busy = false, analysisRun = 0;
   let regionalState, regionalLoading = false, regionalRequest = 0, regionalFrame;
-  const detailedEvent = "london-detail";
+  const detailedEvent = "E3_2022-07";
+  const legacyDetailedEvent = "london-detail";
+  const isDetailed = (region, event) => region === "London" && [detailedEvent, legacyDetailedEvent].includes(event);
   const lastCase = new Map();
   let adminCatalog, detailedClip;
   let caseCatalog, caseRegion = "London", caseEvent = detailedEvent, caseLoading = false, caseRequest = 0;
@@ -90,10 +92,10 @@
         ["Calculate population exposure", "Compare residents aged 65+"]],
       ["Where was it hottest to walk?", "Draw an area or use the model coverage to calculate heat exposure along the walking network.",
         "SOLWEIG estimates radiation using terrain, buildings and canopy. UTCI adds air temperature, humidity and wind. We weight the 100 m cells by represented walking length.",
-        ["Calculate pedestrian UTCI", "Show land cover"]],
+        ["Calculate pedestrian UTCI", "How is UTCI calculated?"]],
       ["What if more streets had shade?", "Estimate how the UTCI along walking routes would change if some sunlit length had building shade.",
         "Keep the same event time and weather. Use only 100 m cells with at least 20 m of modelled walking length in both sun and building shade.",
-        ["What if 25% of paths were shaded?", "Open NDVI"]],
+        ["What if 25% of paths were shaded?", "How is the shade scenario calculated?"]],
     ][stage];
     return [row[0], row[1], ...content];
   }
@@ -109,8 +111,10 @@
       if (!regionalState) return null;
       return regionalState.metric === "street" ? (regionalState.street ? "regional-utci" : null) : "regional";
     }
-    if (usingArchive() && stage >= 2 && results.has(stage) && !archiveState.contextLayer[stage]) {
-      return stage === 2 ? "case-utci" : "case-" + variants[3];
+    if (usingArchive() && stage >= 2) return results.has(stage) ? stage === 2 ? "case-utci" : "case-" + variants[3] : null;
+    if (usingArchive() && stage === 1 && results.has(1)) {
+      if (results.get(1).event?.kind === "population") return variants[1];
+      if (results.get(1).event?.tiles?.length) return "archive-population-map";
     }
     if (usingArchive()) return archiveLayer() ? "case-" + archiveLayer().id : null;
     if (stage === 0) return cityLayer;
@@ -400,9 +404,8 @@
       archiveState ? archiveState.record.label.replace(" · reference point", "") : "July 2022";
     $("enter-label").textContent = "EXPLORE " + (adminCatalog?.cities[caseRegion]?.name ?? "London").toUpperCase();
     const city = caseCatalog?.cities.find(item => item.id === caseRegion);
-    const eventOptions = city?.cases.map(record => new Option(record.label +
-      (city.id === "London" && record.id === "E3_2022-07" ? " · comparable city data" : ""), record.id)) ?? [];
-    if (caseRegion === "London") eventOptions.unshift(new Option("July 2022 · detailed London case", detailedEvent));
+    const eventOptions = city?.cases.map(record => new Option(record.label, record.id)) ??
+      (caseRegion === "London" ? [new Option("July 2022", detailedEvent)] : []);
     $("case-event").replaceChildren(...eventOptions);
     $("case-event").value = caseEvent;
   }
@@ -425,7 +428,7 @@
         if (stage !== 4) url.searchParams.delete(key);
       }
     }
-    if (stage >= 0 && stage < 4 && archiveState) {
+    if (stage >= 0 && stage < 4) {
       url.searchParams.set("city", caseRegion);
       url.searchParams.set("event", caseEvent);
     } else if (stage !== 4) {
@@ -458,7 +461,7 @@
         const city = catalog.cities.find(item => item.id === region);
         const chapterIndex = index < 0 ? 0 : index;
         if (city) {
-          const available = !event || (region === "London" && event === detailedEvent) || city.cases.some(record => record.id === event);
+          const available = !event || isDetailed(region, event) || city.cases.some(record => record.id === event);
           const opened = await chooseCase(region, available ? event : undefined, chapterIndex, false);
           if (opened && !available) reportAnalysis("That event is unavailable for " + city.name + ". Showing its default case instead.");
         } else {
@@ -497,7 +500,7 @@
     if (!ready) return false;
     const city = caseCatalog?.cities.find(item => item.id === region);
     if (!city && region !== "London") return false;
-    if (event && !(region === "London" && event === detailedEvent) && !city?.cases.some(record => record.id === event)) return false;
+    if (event && !isDetailed(region, event) && !city?.cases.some(record => record.id === event)) return false;
     const id = ++caseRequest;
     stopArchivePlayback();
     if (drawing) setDrawing(false);
@@ -505,9 +508,9 @@
     updateControls();
     try {
       const requested = event ?? lastCase.get(region) ?? (region === "London" ? detailedEvent : null);
-      const record = requested === detailedEvent ? undefined :
-        city?.cases.find(item => item.id === requested) ?? city?.cases.find(item => item.id === "E3_2022-07") ??
+      const preferred = city?.cases.find(item => item.id === requested) ?? city?.cases.find(item => item.id === detailedEvent) ??
         city?.cases.find(item => !item.pointOnly);
+      const record = isDetailed(region, requested) ? undefined : preferred;
       const admin = adminCatalog?.cities[region];
       const street = adminCatalog?.streetModels?.[region]?.[record?.id];
       const [data, boundary] = record ? await Promise.all([A.read(record.file), A.readAdmin(admin.boundary)]) : [];
@@ -530,7 +533,7 @@
         const event = admin.events[record.id], snapshotLayer = event.snapshot ? "lst_c" : "landcover";
         archiveState = { city, admin, boundary, clip: A.boundaryIndex(boundary, admin.bbox), event, street,
           otherStreet: Boolean(adminCatalog.streetModels?.[region]), record, data, date: data.peak, model: "land",
-          selected: [snapshotLayer, snapshotLayer, "landcover", "landcover"], contextLayer: {}, station: data.stations[0]?.id, stationPeriod: "event" };
+          selected: [snapshotLayer, snapshotLayer], station: data.stations[0]?.id, stationPeriod: "event" };
         registerArchiveLayers();
         map.getSource("archive-study-area").setData(L.collection([boundary]));
         map.getSource("street-model-area").setData(street ? L.collection([{ type: "Feature", geometry: street.geometry, properties: {} }]) : L.empty);
@@ -554,12 +557,13 @@
   function updateArchiveControls() {
     if (!usingArchive()) return;
     const state = archiveState, { data } = state;
-    const layer = $("archive-layer"), resultLayer = stage === 2 ? "case-utci" : "case-" + variants[3];
-    const options = state.layers.map(item => new Option(item.label, item.id));
-    if (stage >= 2 && results.has(stage)) options.unshift(new Option(L.layers[resultLayer].label, resultLayer));
-    layer.replaceChildren(...options);
-    if (!state.layers.some(item => item.id === state.selected[stage])) state.selected[stage] = state.layers[0]?.id;
-    layer.value = stage >= 2 && results.has(stage) && !state.contextLayer[stage] ? resultLayer : state.selected[stage];
+    const layer = $("archive-layer");
+    if (stage < 2) {
+      layer.replaceChildren(...state.layers.map(item => new Option(item.label, item.id)));
+      if (!state.layers.some(item => item.id === state.selected[stage])) state.selected[stage] = state.layers[0]?.id;
+      layer.value = state.selected[stage];
+    }
+    $("archive-layer-row").hidden = stage >= 2 || stage === 1 && results.has(1);
     $("archive-model-row").hidden = !data.alternative || stage !== 0;
     $("archive-model").replaceChildren(new Option("ERA5-Land · 0.1°", "land"),
       ...(data.alternative ? [new Option("ERA5 · 0.25° alternative", "era5")] : []));
@@ -609,12 +613,9 @@
 
   function chooseArchiveLayer(id) {
     if (!usingArchive()) return false;
-    if (streetKeys.includes(id) && results.has(stage)) archiveState.contextLayer[stage] = false;
-    else {
-      if (!archiveState.layers.some(item => item.id === id)) return false;
-      archiveState.selected[stage] = id;
-      if (stage >= 2) archiveState.contextLayer[stage] = true;
-    }
+    if (stage >= 2) return stage === 2 && id === "case-utci" && results.has(stage);
+    if (!archiveState.layers.some(item => item.id === id)) return false;
+    archiveState.selected[stage] = id;
     popup?.remove();
     hover?.remove();
     clearGrid();
@@ -656,16 +657,21 @@
     archivePlayback = setInterval(next, 1250);
   }
 
-  function detailedCover() {
-    return !usingArchive() && layerKey() === "landcover" && adminCatalog?.cities.London.cover[map.getZoom() >= 12.3 ? "100" : "500"];
+  function detailedRaster() {
+    if (usingArchive() || !adminCatalog || caseRegion !== "London") return;
+    const key = layerKey(), city = adminCatalog.cities.London;
+    if (key === "landcover") return city.cover[map.getZoom() >= 12.3 ? "100" : "500"];
+    if (key === "lst") return city.events[detailedEvent].snapshot?.layer;
   }
 
   async function refreshArchiveGrid() {
-    const state = archiveState, key = layerKey(), cover = detailedCover();
-    const meta = cover ? { ...cover, type: "raster" } : usingArchive() && archiveLayer();
-    if (cover) { L.layers.landcover = meta; L.attr.landcover = meta.source; }
-    if (!meta && !streetKeys.includes(key)) { updateVisibility(); return; }
+    const state = archiveState, key = layerKey(), detailed = detailedRaster();
     const result = results.get(stage);
+    const popResult = stage === 1 && Boolean(result?.event?.tiles?.length) &&
+      (key === "archive-population-map" || populationLayers.includes(key) || key === "poverty");
+    const meta = detailed ? { ...detailed, type: "raster" } : usingArchive() && !popResult && archiveLayer();
+    if (detailed) { L.layers[key] = meta; L.attr[key] = meta.source; }
+    if (!meta && !streetKeys.includes(key) && !popResult) { updateVisibility(); return; }
     const frame = [caseRegion, caseEvent, key, state?.model, meta?.type === "raster" ? meta.image : state?.date,
       meta?.type === "station" ? [state.station, state.comparison, state.stationPeriod] : "", result?.run, view].join("/");
     if (archiveFrame === frame && gridKey === key) { updateBars(); updateVisibility(); return; }
@@ -673,7 +679,14 @@
     legendStatus("Loading case layer…");
     try {
       let features = [];
-      if (streetKeys.includes(key)) {
+      if (popResult) {
+        const selection = area()?.bounds;
+        features = L.populationGrid(result.event.tiles, key).features.flatMap(feature => {
+          const bounded = selection ? L.clip(feature, selection) : feature;
+          const clipped = bounded && clipFeature(state.clip, bounded);
+          return clipped ? [clipped] : [];
+        });
+      } else if (streetKeys.includes(key)) {
         const source = key === "case-utci" ? result?.analysis?.features : result?.event?.features;
         features = (source?.features ?? []).flatMap(feature => {
           const cell = area()?.bounds ? A.clipToBoundary(feature, A.polygon(area().bounds)) : feature;
@@ -687,7 +700,7 @@
           archiveImage = meta.image;
         }
         archiveGrid = buffer;
-        if (view === "bars") features = A.rasterColumns(buffer, meta, cover ? detailedClip : state.clip);
+        if (view === "bars") features = A.rasterColumns(buffer, meta, detailed ? detailedClip : state.clip);
       } else if (meta.type === "air") features = A.airGrid(state, meta);
       else {
         const points = state.data.stations.map(station => {
@@ -703,12 +716,13 @@
       gridKey = key;
       drawnGrid = L.collection(features);
       barsGrid = undefined;
-      resolution = streetKeys.includes(key) ? "100 m walking grid" : meta.type === "air" ? "administrative boundary" : "";
+      resolution = popResult ? "500 m result grid" : streetKeys.includes(key) ? result?.event?.mapResolution ?? result?.analysis?.mapResolution ?? "100 m walking grid" :
+        meta.type === "air" ? "administrative boundary" : "";
       map.getSource("metric-grid").setData(drawnGrid);
       map.setPaintProperty("metric-fill", "fill-color", L.color(key));
       map.setPaintProperty("metric-extrusion", "fill-extrusion-color", L.color(key));
       updateBars();
-      legendStatus(!streetKeys.includes(key) && meta.type === "air" && !features.length ? "No valid cells for this UTC day." : "");
+      legendStatus(meta?.type === "air" && !features.length ? "No valid cells for this UTC day." : "");
     } catch {
       if (request !== gridRequest) return;
       legendStatus("This case layer could not load. Try switching layers.");
@@ -717,9 +731,9 @@
   }
 
   function showArchiveSample(event, transient) {
-    const cover = detailedCover(), meta = cover || (usingArchive() && archiveLayer());
-    if ((!cover && meta?.type !== "raster") || streetKeys.includes(layerKey()) || gridKey !== layerKey() || !archiveGrid) return;
-    if (!(cover ? detailedClip : archiveState.clip)?.contains(event.lngLat.lng, event.lngLat.lat)) {
+    const key = layerKey(), detailed = detailedRaster(), meta = detailed || (usingArchive() && archiveLayer());
+    if ((!detailed && meta?.type !== "raster") || L.layers[key]?.type !== "raster" || gridKey !== key || !archiveGrid) return;
+    if (!(detailed ? detailedClip : archiveState.clip)?.contains(event.lngLat.lng, event.lngLat.lat)) {
       if (transient) hover?.remove();
       return;
     }
@@ -737,7 +751,7 @@
   function updateVisibility() {
     const key = layerKey(), spec = L.layers[key];
     const grid = gridKey === key && drawnGrid.features.length > 0;
-    const archiveRaster = (usingArchive() || detailedCover()) && spec?.type === "raster";
+    const archiveRaster = (usingArchive() || detailedRaster()) && spec?.type === "raster";
     const archiveStation = usingArchive() && spec?.type === "station";
     visible("metric-fill", grid && !archiveRaster && key !== "regional");
     visible("archive-image-layer", archiveRaster && gridKey === key);
@@ -942,7 +956,7 @@
   async function refreshGrid() {
     if (!ready) return;
     if (stage < 0) return showGlobalDay();
-    if (usingArchive() || detailedCover()) {
+    if (usingArchive() || detailedRaster()) {
       if (usingArchive()) registerArchiveLayers();
       return refreshArchiveGrid();
     }
@@ -999,7 +1013,7 @@
     popup?.remove();
     hover?.remove();
     if (stage < 0) globeSlots.forEach(prepareGlobeBars);
-    if (stage === 4 || usingArchive() || detailedCover()) refreshGrid();
+    if (stage === 4 || usingArchive() || detailedRaster()) refreshGrid();
     else updateBars();
     updateVisibility();
     updateHotspotHeight();
@@ -1709,7 +1723,7 @@
       layer: key => {
         if (busy) return;
         variants[stage] = key;
-        if (usingArchive()) { archiveState.contextLayer[stage] = false; updateArchiveControls(); }
+        if (usingArchive()) updateArchiveControls();
         clearGrid();
         refreshGrid();
       },
@@ -1745,7 +1759,7 @@
     $("chapter-nav").hidden = stage < 0 || stage === 4;
     updateCaseHeader();
     $("case-event-controls").hidden = stage < 0 || stage === 4;
-    $("archive-workspace").hidden = !usingArchive();
+    $("archive-workspace").hidden = !usingArchive() || stage >= 2;
     $("weather-reference").hidden = stage !== 0 || usingArchive();
     $("station-analysis").hidden = key !== "wow";
     $("area-analysis").hidden = !area();
@@ -1943,7 +1957,6 @@
         $("shade-percent").value = String(request.shadePercent);
         $("shade-value").value = request.shadePercent + "%";
       }
-      archiveState.contextLayer[stage] = false;
       areaLabel();
       outline();
       clearGrid();
@@ -2110,7 +2123,7 @@
           return writeReply(chatTurn, chooseArchiveLayer("case-utci") ? "Showing the calculated UTCI grid." :
             "Draw an area or use model coverage, then run heat exposure analysis to show the UTCI grid.");
         }
-        if (["air-max", "noaa"].includes(action.layer) && stage !== 0) openChapter(0);
+        if (stage >= 2 || (["air-max", "noaa"].includes(action.layer) && stage !== 0)) openChapter(0);
         if (action.date && action.date !== archiveState?.date && !setArchiveDate(action.date)) {
           return writeReply(chatTurn, "That UTC date is not in the selected case.");
         }
