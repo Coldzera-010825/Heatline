@@ -91,7 +91,7 @@ function localIntent(message, context) {
     }
     const requestedEvent = year[0] === "2018" ? "X1_2018-07" :
       year[0] === "2026" && /\b(?:aug(?:ust)?)\b|8\s*月/.test(query) ? "X2_2026-07" : event;
-    return { action: "open-case", region, event: region === "London" && requestedEvent === "E3_2022-07" ? "london-detail" : requestedEvent, strict: true };
+    return { action: "open-case", region, event: requestedEvent, strict: true };
   }
   if (year.some(value => value !== "2022") ||
       (date && (requested.month !== 7 || day < 13 || day > 19)) ||
@@ -165,7 +165,7 @@ function localIntent(message, context) {
     return { action: "layer", layer: "wow", day };
   }
 
-  const full = /\b(?:full|entire|all of|citywide|greater london|study area|all london)\b|全市|全伦敦|研究区/.test(query);
+  const full = /\b(?:full|entire|all of|citywide|greater london|study area|administrative area|all london)\b|全市|全城|全伦敦|研究区/.test(query);
   const district = districtIds.length || /\b(?:kensington|covent garden|holborn|bloomsbury)\b/.test(query);
   if (district && !selected) return { action: "clarify" };
   const scope = full ? "london" : "selected";

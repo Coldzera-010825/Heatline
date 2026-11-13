@@ -40,7 +40,8 @@ function describe(total) {
   };
 }
 
-async function analyzePopulation({ bounds, group = "older", reference = "all", borough, rank = false, rankOrder = "desc", scopeNote }, progress, readEvent) {
+async function analyzePopulation({ bounds, group = "older", reference = "all", borough, rank = false, rankOrder = "desc", scopeNote,
+  timeUtc = "2022-07-18T10:52:15Z" }, progress, readEvent) {
   if (bounds != null && !validBounds(bounds)) return problem("clarify", "Draw a valid rectangular area.");
   if (!populationGroups.includes(group) || !populationGroups.includes(reference) || group === reference) {
     return problem("clarify", "Choose two different groups from the London population menu.");
@@ -96,20 +97,21 @@ async function analyzePopulation({ bounds, group = "older", reference = "all", b
   const groupText = label => label[0].toLowerCase() + label.slice(1);
   const delta = a.matched && b.matched ? round(totals[group].sum / a.matched - totals[reference].sum / b.matched) : null;
   const place = borough ? districts[borough] : bounds ? "the drawn area" : "Greater London";
+  const eventDate = timeUtc.slice(0, 10);
   const format = n => n.toLocaleString("en-GB");
   let reply;
   if (ranked?.length) {
     const first = ranked[0];
     reply = first.name + " had the " + (rankOrder === "desc" ? "highest" : "lowest") + " matched mean residential surface temperature for " + groupText(a.label) +
       ": " + first.mean.toFixed(2) + "°C (" + format(first.matched) + " matched residents). " +
-      "The ranking uses the 18 July Landsat snapshot, not air temperature or heat risk.";
+      "The ranking uses the " + eventDate + " Landsat surface-temperature snapshot.";
   } else if (ranked) {
     reply = "No London districts have matched records for this group.";
   } else if (delta != null) {
     reply = "In " + place + ", matched mean residential LST was " + a.mean.toFixed(2) + "°C for " + groupText(a.label) +
       " and " + b.mean.toFixed(2) + "°C for " + groupText(b.label) + ". " +
       (delta === 0 ? "The difference rounds to 0.00°C." : "The first group was " + Math.abs(delta).toFixed(2) + "°C " +
-        (delta > 0 ? "higher." : "lower.")) + " This is a single 18 July surface-temperature snapshot.";
+        (delta > 0 ? "higher." : "lower.")) + " This is a single " + eventDate + " surface-temperature snapshot.";
   } else {
     reply = "At least one selected group has no matched residents in " + place + ". Other available group results are shown below.";
   }
@@ -117,7 +119,9 @@ async function analyzePopulation({ bounds, group = "older", reference = "all", b
   return {
     ok: true, status: "complete", reply,
     event: {
-      kind: "population", timeUtc: "2022-07-18T10:52:15Z", areas, matched, delta, place, group, reference, groups,
+      kind: "population", timeUtc, censusYear: 2021, areaUnit: "Output Areas", areas, matched, delta, place, group, reference, groups,
+      mapLayers: [["residents", "Surface LST"], ["older", "65+ share"], ["limited", "Activity-limited share"],
+        ["deprived", "IMD 1–2 share"], ["leastDeprived", "IMD 9–10 share"]],
       all: groups.all, older: groups.older, borough, ranked, rankOrder, bounds,
       districtExtent: borough ? districtExtent : undefined,
       distribution: bandLabels.map((label, i) => ({
@@ -129,7 +133,7 @@ async function analyzePopulation({ bounds, group = "older", reference = "all", b
         round(100 * tile.older / tile.count, 1), tile.count, round(100 * tile.limited / tile.count, 1),
         round(100 * tile.deprived / tile.count, 1), round(100 * tile.leastDeprived / tile.count, 1),
       ]),
-      method: "ONS Census 2021 TS007A (age) and TS038 (day-to-day activities); OA geometric centroid with a 5 × 5 Landsat 9 LST pixel window on 18 July 2022 at 10:52 UTC. Means weight each matched OA by the count in the selected group. IMD 2025 deciles classify English neighbourhoods and are applied retrospectively to the snapshot. All residents includes the subgroups. LST represents the surface at residential locations, not personal exposure or health risk.",
+      method: "ONS Census 2021 TS007A (age) and TS038 (day-to-day activities). Each OA is assigned the 5 × 5 clear Landsat mean around its geometric centroid. The " + eventDate + " overpass uses a fixed 2021 population baseline. Group means weight the matched OAs by each group’s residents. IMD 2025 classifies English neighbourhoods retrospectively. The result describes surface temperatures at residential locations.",
     },
   };
 }

@@ -114,7 +114,7 @@ function timesLabel(time) {
   return time.slice(8, 10) + " July, " + time.slice(11, 16) + " UTC";
 }
 
-async function analyzeShade({ bounds, shadePercent, timeUtc = snapshot, place = "the central London pilot", source }, progress, readEvent) {
+async function analyzeShade({ bounds, shadePercent, timeUtc = snapshot, place = "the central London pilot", source, coverage, latitude, networkHeat }, progress, readEvent) {
   if (bounds != null && !validBounds(bounds)) return problem("clarify", "Draw a valid rectangular area.");
   if (!Number.isFinite(shadePercent) || shadePercent < 0 || shadePercent > 100) {
     return problem("clarify", "Choose a shade conversion percentage between 0 and 100.");
@@ -122,14 +122,18 @@ async function analyzeShade({ bounds, shadePercent, timeUtc = snapshot, place = 
   progress("Finding cells with paired sun and building shade…");
   const records = await readEvent("shade-pairs.json");
   const rows = records.filter(([lon, lat]) => inside(lon, lat, bounds));
-  if (!rows.length) return problem("empty", "This area has no paired sun and building-shade cells. Select " + place + ".");
+  if (!rows.length) return problem("empty", "No eligible 100 m cells here have at least 20 m each of sunlit and building-shaded paths. " +
+    (coverage?.city ? "Try a different area or view baseline UTCI in At street level." : "Pairing is available only in " + place + "."));
   progress("Calculating length-weighted baseline and shade scenario UTCI…");
   let total = 0;
   let sunTotal = 0;
   let converted = 0;
   let baseline = 0;
   let scenario = 0;
-  const features = rows.map(([lon, lat, length, sunLength, shadeLength, base, sun, shade, ring]) => {
+  const overview = rows.length > 14000, grid = new Map();
+  const dy = 500 / 111195, dx = dy / Math.cos((latitude ?? rows[0][1]) * Math.PI / 180);
+  const features = [];
+  for (const [lon, lat, length, sunLength, shadeLength, base, sun, shade, ring] of rows) {
     const changed = shadePercent / 100 * sunLength;
     const difference = changed * (sun - shade);
     total += length;
@@ -137,24 +141,46 @@ async function analyzeShade({ bounds, shadePercent, timeUtc = snapshot, place = 
     converted += changed;
     baseline += base * length;
     scenario += base * length - difference;
-    return { type: "Feature", id: lon + "," + lat, geometry: { type: "Polygon", coordinates: [ring] },
+    if (overview) {
+      const w = Math.floor(lon / dx) * dx, s = Math.floor(lat / dy) * dy;
+      const key = w + ":" + s;
+      const cell = grid.get(key) ?? { w, s, length: 0, changed: 0, base: 0, scenario: 0 };
+      cell.length += length;
+      cell.changed += changed;
+      cell.base += base * length;
+      cell.scenario += base * length - difference;
+      grid.set(key, cell);
+    } else features.push({ type: "Feature", id: lon + "," + lat, geometry: { type: "Polygon", coordinates: [ring] },
       properties: { lon, lat, path_m: round(length, 1), sun_m: round(sunLength, 1), shade_m: round(shadeLength, 1),
         converted_m: round(changed, 1), baseline: round(base), scenario: round(base - difference / length),
-        reduction: round(difference / length), sun: round(sun), shade: round(shade) } };
-  });
+        reduction: round(difference / length), sun: round(sun), shade: round(shade) } });
+  }
+  for (const { w, s, length, changed, base, scenario } of grid.values()) {
+    features.push({ type: "Feature", geometry: { type: "Polygon", coordinates: [[[w, s], [w + dx, s], [w + dx, s + dy], [w, s + dy], [w, s]]] },
+      properties: { path_m: round(length, 1), converted_m: round(changed, 1), baseline: round(base / length), scenario: round(scenario / length), meters: 500 } });
+  }
   const before = round(baseline / total);
   const after = round(scenario / total);
   const reduction = round((baseline - scenario) / total);
+  const selection = coverage?.city && Number.isFinite(networkHeat) ? {
+    before: round(networkHeat / coverage.pathM),
+    after: round((networkHeat - (baseline - scenario)) / coverage.pathM),
+    reduction: round((baseline - scenario) / coverage.pathM),
+  } : undefined;
   const contrasts = rows.map(row => row[6] - row[7]).sort((a, b) => a - b);
   const medianShadeContrast = round((contrasts[Math.floor((contrasts.length - 1) / 2)] + contrasts[Math.floor(contrasts.length / 2)]) / 2);
   return {
     ok: true, status: "complete",
     reply: "Converting " + shadePercent + "% of the modeled sunlit walking length gives " + after.toFixed(2) +
       "°C length-weighted UTCI, compared with " + before.toFixed(2) + "°C at baseline. The estimated change is " +
-      (reduction > 0 ? "−" : reduction < 0 ? "+" : "") + Math.abs(reduction).toFixed(2) + "°C across " + rows.length + " paired cells.",
+      (reduction > 0 ? "−" : reduction < 0 ? "+" : "") + Math.abs(reduction).toFixed(2) + "°C across " + rows.length.toLocaleString("en-GB") + " paired cells." +
+      (coverage ? " This covers " + (100 * Math.min(1, total / coverage.pathM)).toFixed(1) + "% of modelled walking length in the selection." : " The estimate applies to the paired pilot routes in this selection."),
     event: {
       kind: "shade", timeUtc, place, source, before, after, reduction, medianShadeContrast, shadePercent, pairedCells: rows.length,
       networkM: Math.round(total), sunM: Math.round(sunTotal), convertedM: Math.round(converted),
+      selection,
+      coverage: coverage && { ...coverage, pathM: Math.round(coverage.pathM), share: Math.min(1, total / coverage.pathM) },
+      mapResolution: overview ? "500 m paired overview · statistics use 100 m cells" : "100 m paired grid",
       features: { type: "FeatureCollection", features },
       method: "For each eligible 100 m cell, convert the stated fraction of existing modeled sunlit walking length to the cell’s modeled building-shade UTCI. Keep the rest of the network and the event weather fixed. The calculation uses cells with at least 20 m of both sunlit and building-shaded route. This is a single-time estimate with existing radiation inputs and no new shade geometry simulation." +
         (rows.length < 10 ? " Fewer than ten cells are eligible in this selection; the result represents only those cells." : ""),

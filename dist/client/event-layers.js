@@ -20,10 +20,12 @@
     landcover: { label: "Land cover", source: "ESA WorldCover 2021 v200 · dominant class · © ESA WorldCover project 2021 · CC BY 4.0", classes, index: 6 },
     utci: { label: "Walking-network UTCI", source: "TerraHeat · SOLWEIG + UTCI · 18 Jul 2022 · 10:52 UTC", range: [30, 40], colors: heat, unit: "°C" },
     residents: { label: "Residential surface heat proxy", source: "Census 2021 + Landsat 9 · 18 Jul 2022 · 5 × 5 pixel window", range: [25, 55], colors: heat, unit: "°C" },
+    "archive-population-map": { label: "Population-weighted residential LST", source: "GHS-POP 2020 and clear Landsat pixels", range: [25, 55], colors: heat, unit: "°C" },
     older: { label: "Resident share aged 65+", source: "Census 2021 · share in matched areas", range: [0, 30], colors: share, unit: "%" },
     limited: { label: "Resident share with limited activities", source: "Census 2021 TS038 · share in matched areas", range: [0, 30], colors: share, unit: "%" },
     deprived: { label: "Resident share in IMD deciles 1–2", source: "IMD 2025 applied to Census 2021 residential locations", range: [0, 100], colors: share, unit: "%" },
     leastDeprived: { label: "Resident share in IMD deciles 9–10", source: "IMD 2025 applied to Census 2021 residential locations", range: [0, 100], colors: share, unit: "%" },
+    poverty: { label: "Residents below the poverty threshold", source: "U.S. Census Bureau ACS", range: [0, 35], colors: share, unit: "%" },
     baseline: { label: "Baseline UTCI", source: "Paired pilot · SOLWEIG + UTCI · 18 Jul 2022 · 10:52 UTC", range: [28, 42], colors: heat, unit: "°C" },
     scenario: { label: "Shade scenario UTCI", source: "Paired pilot · length-weighted estimate · 18 Jul 2022 · 10:52 UTC", range: [28, 42], colors: heat, unit: "°C" },
   };
@@ -114,6 +116,13 @@
       { value: row[index], count: row[4], temperature: row[2], meters: 500 })));
   }
 
+  function residentialResultGrid(rows, layer) {
+    return collection(rows.flatMap(([w, s, dx, dy, temperature, count, groups]) => {
+      const value = ["residents", "archive-population-map"].includes(layer) ? temperature : groups[layer];
+      return Number.isFinite(value) ? [cell(w, s, w + dx, s + dy, { value, count, temperature, meters: 500 })] : [];
+    }));
+  }
+
   function regionalData(file) {
     const key = "events/" + file;
     if (!cache.has(key)) cache.set(key, fetch("data/" + key).then(response => {
@@ -197,5 +206,6 @@
       ...config.colors.flatMap((c, i) => [min + (max - min) * i / (config.colors.length - 1), c])];
   }
 
-  window.HEATLINE_LAYERS = { layers, attr, londonLayers, empty, data, collection, globalGrid, londonGrid, populationGrid, regionalData, regionalGrid, clip, barCutoff, columns, color };
+  window.HEATLINE_LAYERS = { layers, attr, londonLayers, empty, data, collection, globalGrid, londonGrid, populationGrid,
+    residentialResultGrid, regionalData, regionalGrid, clip, barCutoff, columns, color };
 })();

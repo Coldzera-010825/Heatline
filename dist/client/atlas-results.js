@@ -322,7 +322,7 @@
       nodes.push(details("Observation quality and method", method));
     } else if (event.kind === "population") {
       const { groups, group, reference, ranked, rankOrder } = event;
-      nodes.push(element("h2", ranked ? "London district ranking" : "Residential surface heat · " + event.place), element("p", result.reply));
+      nodes.push(element("h2", ranked ? "District ranking" : "Residential surface heat · " + event.place), element("p", result.reply));
       if (ranked) {
         const rankRows = ranked.map((entry, i) => [
           (i + 1) + ". " + entry.name,
@@ -342,29 +342,40 @@
         item.mean == null ? "No matched data" : item.mean.toFixed(2) + "°C · " + format(item.matched, 0) + " matched (" + percent(item.coverage) + ")",
       ]));
       estimates.className = "group-estimates";
-      nodes.push(estimates, element("p", format(event.matched, 0) + " of " + format(event.areas, 0) +
-        " Output Areas matched to 18 July LST. Differences use unrounded means.", "data-note"));
+      const date = event.timeUtc.slice(0, 16).replace("T", " ") + " UTC";
+      nodes.push(estimates, element("p", format(event.matched, 0) + " of " + format(event.areas, 0) + " " +
+        (event.areaUnit ?? "Output Areas") + " matched to Landsat on " + date + " · " +
+        (event.censusYear ?? 2021) + " population baseline." + (event.inCore === false ? " Overpass outside the heatwave core." : ""), "data-note"));
       if (!ranked && groups[group].atLeast45 != null) {
         nodes.push(element("p", format(groups[group].atLeast45, 0) + " of " + format(groups[group].matched, 0) +
           " matched residents in the first group had a residential LST estimate ≥45°C.", "data-note"));
       }
-      nodes.push(options([["residents", "Surface LST"], ["older", "65+ share"], ["limited", "Activity-limited share"],
-        ["deprived", "IMD 1–2 share"], ["leastDeprived", "IMD 9–10 share"]], callbacks.layer, callbacks.variant),
+      nodes.push(options(event.mapLayers, callbacks.layer, callbacks.variant),
         seriesLegend([groups[group].label, groups[reference].label]),
         bars("Share of matched residents by LST band (°C)", event.distribution.map(band => [band.label, band[group], band[reference]])),
         details("How this was calculated", event.method));
     } else if (event.kind === "shade") {
-      nodes.push(element("h2", "Shade scenario"), element("p", result.reply), table("Baseline and shade scenario", [
+      nodes.push(element("h2", "Shade scenario"), element("p", result.reply), table("Eligible cells · baseline and shade scenario", [
         ["Baseline UTCI", format(event.before) + "°C"], ["Scenario UTCI", format(event.after) + "°C"],
         ["Scenario reduction · route-weighted", format(event.reduction) + "°C"],
         ["Existing sun vs building shade · median paired contrast", format(event.medianShadeContrast) + "°C"],
         ["Paired 100 m cells", format(event.pairedCells, 0)],
-        ["Represented walking length", distance(event.networkM)], ["Currently sunlit length", distance(event.sunM)],
+        ["Walking length in paired cells", distance(event.networkM)],
+        ...(event.coverage ? [
+          ["Modelled walking length in selection", distance(event.coverage.pathM)],
+          ["Modelled length with eligible pairs", percent(event.coverage.share)],
+        ] : []),
+        ["Currently sunlit length in paired cells", distance(event.sunM)],
         ["Sunlit length converted to shade", distance(event.convertedM)],
-      ]), options([["baseline", "Baseline map"], ["scenario", "Scenario map"]], callbacks.layer, "scenario"),
+      ]), options([["baseline", "Baseline map"], ["scenario", "Scenario map"]], callbacks.layer, callbacks.variant),
         details("Scenario assumptions and formula", event.method, event.formula, event.source));
-      if (event.pairedCells < 10) nodes.splice(2, 0, element("p", "Only " + event.pairedCells +
-        " paired cells are available here. This estimate applies to those cells.", "data-note"));
+      nodes.splice(2, 0, element("p", "The dashed outline marks a drawn selection. Coloured cells have eligible sun–shade pairs. " +
+        (event.coverage?.city ? "Uncoloured routes have no eligible pair or no modelled path." : "Paired inputs cover only the outlined pilot."), "data-note"));
+      if (event.selection) nodes.splice(4, 0, table("Whole modelled selection · other routes fixed", [
+        ["Baseline UTCI", format(event.selection.before) + "°C"],
+        ["Scenario UTCI", format(event.selection.after) + "°C"],
+        ["Scenario reduction · route-weighted", format(event.selection.reduction) + "°C"],
+      ]));
     }
     return nodes;
   }

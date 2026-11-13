@@ -9,7 +9,8 @@ const data = path.join(project, "dist", "client", "data", "london-utci");
 const manifest = JSON.parse(readFileSync(path.join(data, "manifest.json"), "utf8"));
 
 mkdirSync(server, { recursive: true });
-for (const file of ["analysis.mjs", "assistant.mjs", "event-analysis.mjs", "london-population.mjs", "case-analysis.mjs", "utci.mjs", "utci-coefficients.mjs", "request-time.mjs"]) {
+for (const file of ["analysis.mjs", "assistant.mjs", "event-analysis.mjs", "london-population.mjs", "case-analysis.mjs",
+  "utci.mjs", "utci-coefficients.mjs", "request-time.mjs", "residential-map.mjs", "city-street.mjs"]) {
   copyFileSync(path.join(project, "worker", file), path.join(server, file));
 }
 copyFileSync(path.join(project, "worker", "index.mjs"), path.join(server, "index.js"));
