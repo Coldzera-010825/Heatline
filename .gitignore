@@ -2,6 +2,7 @@ dist/server/
 dist/client/data/london-utci/analysis-tiles.json
 dist/client/data/london-utci/analysis-index.bin
 dist/client/mapbox-token.js
+dist/client/build-info.json
 dist/client/data/heatwave/stations.json
 dist/client/data/heatwave/wow/
 .openai/

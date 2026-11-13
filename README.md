@@ -20,4 +20,6 @@ The demo archive includes prepared map and model assets, rather than the raw LiD
 - `worker/` contains the analysis and Atlas endpoints, including the UTCI formula.
 - `prepare-*.py` and `prepare-*.mjs` prepare inputs. Their required local datasets are described in [Data and methods](DATA-METHODS.md) and in each script.
 
-Use `main` for the working demo and a separate branch for each change. The source repository is independent of the production deployment. Check the data provenance and scope before adding new city results.
+Use `main` for the working demo and a separate branch for each change. GitHub Actions builds and tests pull requests and stores a build for each successful `main` commit. The [release instructions](DEPLOYMENT.md) explain how to publish that commit to the existing production site.
+
+Check the data provenance and scope before adding new city results.

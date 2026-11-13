@@ -1,0 +1,45 @@
+name: Heatline checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: heatline-check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: Build
+        run: npm run build
+      - name: Verify the analysis API
+        run: node verify-local.mjs
+      - name: Archive tested build
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          HEATLINE_COMMIT: ${{ github.sha }}
+        run: tar -czf "heatline-${HEATLINE_COMMIT}.tar.gz" dist/client dist/server
+      - name: Upload build for release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: heatline-${{ github.sha }}
+          path: heatline-${{ github.sha }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
