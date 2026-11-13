@@ -7,6 +7,8 @@ const project = path.dirname(fileURLToPath(import.meta.url));
 const server = path.join(project, "dist", "server");
 const data = path.join(project, "dist", "client", "data", "london-utci");
 const manifest = JSON.parse(readFileSync(path.join(data, "manifest.json"), "utf8"));
+const adminCatalog = path.join(project, "dist", "client", "data", "admin");
+writeFileSync(path.join(adminCatalog, "catalog.bin"), gzipSync(readFileSync(path.join(adminCatalog, "catalog.json"))));
 
 mkdirSync(server, { recursive: true });
 for (const file of ["analysis.mjs", "assistant.mjs", "event-analysis.mjs", "london-population.mjs", "case-analysis.mjs",

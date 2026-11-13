@@ -450,7 +450,8 @@
     const url = new URL(location.href), region = url.searchParams.get("city"), event = url.searchParams.get("event");
     const deepCase = Boolean(region) && index !== 4;
     if (!deepCase) openChapter(index, false);
-    Promise.all([A.read("catalog.json"), A.readAdmin("catalog.json")]).then(async ([catalog, admin]) => {
+    const adminArchive = A.readAdmin("catalog.bin").catch(() => A.readAdmin("catalog.json"));
+    Promise.all([A.read("catalog.json"), adminArchive]).then(async ([catalog, admin]) => {
       const boundary = await A.readAdmin(admin.cities.London.boundary);
       detailedClip = A.boundaryIndex(boundary, admin.cities.London.bbox);
       caseCatalog = catalog;
@@ -676,14 +677,32 @@
     if (key === "lst") return city.events[detailedEvent].snapshot?.layer;
   }
 
-  function cityStreetGrid(rows, selection, clip, overview) {
-    return rows.flatMap(([lon, lat, value, path_m, ring]) => {
+  function overviewRing(col, row, [dx, dy]) {
+    const w = col * dx, s = row * dy, e = (col + 1) * dx, n = (row + 1) * dy;
+    return [[w, s], [e, s], [e, n], [w, n], [w, s]];
+  }
+
+  function cityStreetGrid({ mapRows = [], mapResolution = "", mapStep }, selection, clip) {
+    const overview = mapResolution.startsWith("500");
+    return mapRows.flatMap(([x, y, value, path_m, ring]) => {
+      const lon = mapStep ? (x + .5) * mapStep[0] : x;
+      const lat = mapStep ? (y + .5) * mapStep[1] : y;
+      ring ??= overviewRing(x, y, mapStep);
       const feature = { type: "Feature", geometry: { type: "Polygon", coordinates: [ring] },
         properties: { lon, lat, value, path_m, meters: overview ? 500 : 100 } };
       const bounded = selection ? L.clip(feature, selection) : feature;
       const local = bounded && overview ? clipFeature(clip, bounded) : bounded;
       return local ? [local] : [];
     });
+  }
+
+  function shadeFeatures(event) {
+    if (!event) return [];
+    if (!event.mapStep) return event.features?.features ?? [];
+    return event.mapRows.map(([x, y, path_m, converted_m, baseline, scenario]) => ({
+      type: "Feature", geometry: { type: "Polygon", coordinates: [overviewRing(x, y, event.mapStep)] },
+      properties: { path_m, converted_m, baseline, scenario, meters: 500 },
+    }));
   }
 
   const streetDetails = new WeakMap();
@@ -706,7 +725,7 @@
     let detail = streetDetails.get(result);
     if (detail?.key !== key) {
       const promise = receive("/api/analysis", {
-        kind, bounds, coverage: "city", mapOnly: true,
+        kind, bounds, coverage: "city", mapOnly: true, mapFormat: "compact",
         archiveCase: { region: caseRegion, event: caseEvent }, shadePercent: result.event?.shadePercent,
       }, () => {}).catch(() => undefined);
       detail = { key, promise };
@@ -754,12 +773,12 @@
       } else if (key === "case-utci" && result?.analysis?.cityModel) {
         const display = await streetMapResult(result, viewport, "exposure");
         streetResolution = display?.analysis.mapResolution ?? "100 m walking grid";
-        features = cityStreetGrid(display?.analysis.mapRows ?? [], selected, state.clip, streetResolution.startsWith("500"));
+        features = cityStreetGrid(display?.analysis ?? {}, selected, state.clip);
       } else if (streetKeys.includes(key)) {
         const display = await streetMapResult(result, viewport, "shade");
         streetResolution = display?.event?.mapResolution ?? (key === "case-utci" ? "100 m walking grid" : "100 m paired grid");
-        const source = key === "case-utci" ? display?.analysis?.features : display?.event?.features;
-        features = (source?.features ?? []).flatMap(feature => {
+        const source = key === "case-utci" ? display?.analysis?.features?.features ?? [] : shadeFeatures(display?.event);
+        features = source.flatMap(feature => {
           const bounded = selected ? L.clip(feature, selected) : feature;
           const cell = bounded && feature.properties.meters === 500 ? clipFeature(state.clip, bounded) : bounded;
           return cell ? [{ ...cell, properties: { ...cell.properties, value: key === "case-utci" ? cell.properties.utci : cell.properties[key.slice(5)] } }] : [];
@@ -1045,9 +1064,9 @@
       if (key === "utci" && result.analysis.cityModel) {
         const { timeUtc, source } = result.analysis;
         const display = await streetMapResult(result, detailWindow(result, area()?.bounds), "exposure");
-        const { mapRows = [], mapResolution = "100 m walking grid" } = display?.analysis ?? {};
         L.layers.utci.source = source + " · " + timeUtc.slice(0, 16).replace("T", " ") + " UTC";
-        grid = { resolution: mapResolution, features: L.collection(cityStreetGrid(mapRows, undefined, undefined, mapResolution.startsWith("500"))) };
+        grid = { resolution: display?.analysis.mapResolution ?? "100 m walking grid",
+          features: L.collection(cityStreetGrid(display?.analysis ?? {})) };
       } else if (key === "utci") {
         const { scope, bounds: selection, cellCount } = result.analysis;
         const [w, s, e, n] = selection;
@@ -1063,7 +1082,7 @@
       } else if (key === "baseline" || key === "scenario") {
         L.layers[key].source = [result.event.source ?? "SOLWEIG pilot", result.event.timeUtc.slice(0, 16).replace("T", " ") + " UTC"].join(" · ");
         const display = await streetMapResult(result, detailWindow(result, area()?.bounds), "shade");
-        grid = { resolution: display?.event.mapResolution ?? "100 m paired grid", features: L.collection((display?.event.features.features ?? []).map(feature => ({
+        grid = { resolution: display?.event.mapResolution ?? "100 m paired grid", features: L.collection(shadeFeatures(display?.event).map(feature => ({
           ...feature, properties: { ...feature.properties, value: feature.properties[key] },
         }))) };
       } else if (populationLayers.includes(key)) {
@@ -1955,7 +1974,7 @@
   async function receive(endpoint, body, onProgress) {
     const response = await fetch(endpoint, {
       method: "POST", headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
-      body: JSON.stringify(body), signal: AbortSignal.timeout(20000),
+      body: JSON.stringify(body), signal: AbortSignal.timeout(body.mapFormat === "compact" ? 65000 : 20000),
     });
     if (response.headers.get("content-type")?.includes("application/json")) return response.json();
     if (!response.ok || !response.body || !response.headers.get("content-type")?.includes("application/x-ndjson")) {
@@ -2029,6 +2048,7 @@
       bounds: ["population", "groups", "exposure", "shade"].includes(kind) ? drawn : undefined,
       shadePercent: options.shadePercent ?? Number($("shade-percent").value), time: options.time, coverage: options.coverage,
     };
+    if ((kind === "exposure" || kind === "shade") && cityStreetModel()) request.mapFormat = "compact";
     if (kind === "groups") {
       request.group = options.group ?? $("population-group").value;
       request.reference = options.reference ?? $("population-reference").value;
@@ -2125,7 +2145,7 @@
     }
     const request = { kind, bounds: area()?.bounds, station: activeStation, comparison: options.compare ? comparison : undefined,
       day: stationDay(), shadePercent: options.shadePercent ?? Number($("shade-percent").value) };
-    if ((kind === "exposure" || kind === "shade") && cityStreetModel()) request.coverage = "city";
+    if ((kind === "exposure" || kind === "shade") && cityStreetModel()) Object.assign(request, { coverage: "city", mapFormat: "compact" });
     if (kind === "population") {
       if (options.group) $("population-group").value = options.group;
       if (options.reference) $("population-reference").value = options.reference;
