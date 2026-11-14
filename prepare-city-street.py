@@ -8,6 +8,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 import csv
 from datetime import datetime, timedelta
+from functools import partial
 import gzip
 import json
 import math
@@ -37,6 +38,17 @@ ROADS = {"primary", "secondary", "tertiary", "residential", "living_street", "pe
 
 def read(path):
     return json.loads(path.read_text(encoding="utf-8-sig"))
+
+
+def origins_for(extent):
+    west, south, east, north = extent.bounds
+    return [(x, y) for y in range(math.floor(south / CORE) * CORE, math.ceil(north / CORE) * CORE, CORE)
+            for x in range(math.floor(west / CORE) * CORE, math.ceil(east / CORE) * CORE, CORE)
+            if extent.intersects(box(x, y, x + CORE, y + CORE))]
+
+
+def projected_boundary(geom, to_grid):
+    return shapely.transform(shapely.make_valid(geom), to_grid.transform, interleaved=False)
 
 
 def save(path, value, packed=False):
@@ -195,11 +207,12 @@ def routes_in_core(roads, core, x, y):
     return xy[keep], weights[keep]
 
 
-def run_tile(args, x, y, boundary, roads, buildings, at, to_geo):
+def run_tile(args, x, y, boundary, roads, buildings, events, to_geo):
     core = box(x, y, x + CORE, y + CORE).intersection(boundary)
     xy, weights = routes_in_core(roads, core, x, y)
     if not len(weights):
-        return None, 0, 0
+        return {name: (None, 0, 0, 0., 0.) for name in events}
+    candidate_length = float(weights.sum())
     left, bottom, right, top = x - BUFFER, y - BUFFER, x + CORE + BUFFER, y + CORE + BUFFER
     limits = left, bottom, right, top
     r, c = np.floor((top - xy[:, 1]) / PIXEL).astype(int), np.floor((xy[:, 0] - left) / PIXEL).astype(int)
@@ -207,7 +220,7 @@ def run_tile(args, x, y, boundary, roads, buildings, at, to_geo):
     supported = np.isfinite(dem) & np.isfinite(dsm)
     usable_terrain = np.isfinite(dem)
     if not supported.any():
-        return None, len(weights), len(weights)
+        return {name: (None, len(weights), len(weights), candidate_length, candidate_length) for name in events}
     around = box(*limits)
     geoms = buildings.geometries[buildings.query(around, predicate="intersects")]
     geoms = geoms[~shapely.is_empty(geoms)]
@@ -218,31 +231,45 @@ def run_tile(args, x, y, boundary, roads, buildings, at, to_geo):
         dem = dem[iy, ix]
         supported = np.isfinite(dsm) & (distance <= 10)
     missing = int((~supported[r, c]).sum())
+    missing_length = float(weights[~supported[r, c]].sum())
     good = supported[r, c] & ~building[r, c]
     if not good.any():
-        return None, len(weights), missing
+        return {name: (None, len(weights), missing, candidate_length, missing_length) for name in events}
     xy, weights, r, c = xy[good], weights[good], r[good], c[good]
     height = np.maximum(np.where(np.isfinite(dsm), dsm - dem, 0), 0)
     dsm = dem + np.where(building, height, 0)
     canopy = np.where(~building & (height >= 2) & (height <= 30), height, 0)
     cx, cy = x + CORE / 2, y + CORE / 2
     lon, lat = to_geo.transform(cx, cy)
-    forcing = at(cx, cy)
+    location = solweig.Location(latitude=lat, longitude=lon, utc_offset=0)
     args.work.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="heatline-tile-", dir=args.work) as tmp:
-        dst = Path(tmp)
-        for name, canopy_grid, fields in (("full", canopy, ("tmrt", "shadow", "utci")), ("bare", None, ("shadow",))):
-            surface = solweig.SurfaceData.prepare(dsm=dsm, dem=dem, cdsm=canopy_grid, cdsm_relative=True, pixel_size=PIXEL)
-            solweig.calculate(surface, weather=forcing, location=solweig.Location(latitude=lat, longitude=lon, utc_offset=0),
-                              output_dir=dst / name, outputs=list(fields), use_anisotropic_sky=False, max_shadow_distance_m=BUFFER)
-        def take(name, field):
-            with rasterio.open(dst / name / field / f"{field}_{args.when:%Y%m%d_%H%M}.tif") as src:
-                return src.read(1, masked=True).filled(np.nan)[r, c]
-        radiant, shadow, bare, reference = take("full", "tmrt"), take("full", "shadow"), take("bare", "shadow"), take("full", "utci")
+    recordings = {name: {} for name in events}
+    forcing = {name: at(cx, cy) for name, (_, at) in events.items()}
+    for canopy_grid, fields in ((canopy, ("tmrt", "shadow", "utci")), (None, ("building-shadow",))):
+        surface = solweig.SurfaceData.prepare(dsm=dsm, dem=dem, cdsm=canopy_grid, cdsm_relative=True, pixel_size=PIXEL)
+        output_names = ["shadow"] if canopy_grid is None else list(fields)
+        for name, (when, _) in events.items():
+            with tempfile.TemporaryDirectory(prefix="heatline-tile-", dir=args.work) as tmp:
+                dst = Path(tmp)
+                solweig.calculate(surface, weather=forcing[name], location=location,
+                                  output_dir=dst, outputs=output_names, use_anisotropic_sky=False,
+                                  max_shadow_distance_m=BUFFER, progress_callback=lambda *_: None)
+                for field, output in zip(fields, output_names):
+                    with rasterio.open(dst / output / f"{output}_{when:%Y%m%d_%H%M}.tif") as src:
+                        recordings[name][field] = src.read(1, masked=True).filled(np.nan)[r, c]
+    group = partial(pack_routes, weights=weights, xy=xy, bounds=boundary, to_geo=to_geo, samples=len(good),
+                    candidate_length=candidate_length, missing=missing, missing_length=missing_length)
+    return {name: group(data, forcing[name][-1]) for name, data in recordings.items()}
+
+
+def pack_routes(data, weather, *, weights, xy, bounds, to_geo, samples, candidate_length, missing, missing_length):
+    radiant, shadow, bare, reference = (data[key] for key in ("tmrt", "shadow", "building-shadow", "utci"))
     valid = np.isfinite(radiant) & np.isfinite(shadow) & np.isfinite(bare) & np.isfinite(reference)
+    missing += int((~valid).sum())
+    missing_length += float(weights[~valid].sum())
     xy, weights, radiant, shadow, bare, reference = [v[valid] for v in (xy, weights, radiant, shadow, bare, reference)]
     if not len(weights):
-        return None, len(good), missing
+        return None, samples, missing, candidate_length, missing_length
     shade = np.select([shadow >= .8, bare < .5, shadow < .5], [0, 1, 2], default=3)
     # Stable group order keeps each cell independent of catalogue or viewport ordering.
     e, n = np.floor(xy / GRID).astype(int).T
@@ -257,8 +284,8 @@ def run_tile(args, x, y, boundary, roads, buildings, at, to_geo):
             continue
         east, north = e[mask[0]] * GRID, n[mask[0]] * GRID
         poly = box(east, north, east + GRID, north + GRID)
-        if not boundary.covers(poly):
-            poly = poly.intersection(boundary)
+        if not bounds.covers(poly):
+            poly = poly.intersection(bounds)
             if poly.geom_type == "MultiPolygon":
                 poly = max(poly.geoms, key=lambda part: part.area)
             if poly.geom_type != "Polygon" or poly.is_empty:
@@ -275,22 +302,22 @@ def run_tile(args, x, y, boundary, roads, buildings, at, to_geo):
         rows.append([*center, round(float(np.average(reference[mask], weights=weight)), 2), round(total, 1), ring, band])
         sampled += total
     if not rows:
-        return None, len(good), missing
-    weather = forcing[-1]
+        return None, samples, missing, candidate_length, missing_length
     return {
         "weather": {"airC": weather.ta, "humidity": weather.rh, "wind": weather.ws, "shortwaveWm2": weather.global_rad},
         "rows": rows, "paired": paired, "routeM": round(sampled, 1),
-    }, len(good), missing
+    }, samples, missing, candidate_length, missing_length
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--boundary", type=Path, required=True)
-    p.add_argument("--weather", type=Path, required=True)
-    p.add_argument("--time", required=True, help="Model time in UTC (ISO 8601 Z)")
+    p.add_argument("--weather", type=Path)
+    p.add_argument("--time", help="Model time in UTC (ISO 8601 Z)")
     p.add_argument("--crs", type=int, required=True)
     p.add_argument("--city", required=True)
-    p.add_argument("--event", required=True)
+    p.add_argument("--event")
+    p.add_argument("--event-list", type=Path, help="JSON object keyed by event. Each record contains time and weather.")
     p.add_argument("--source", required=True)
     p.add_argument("--osm", type=Path, action="append", help="OSM extract. Repeat for overlapping extracts.")
     p.add_argument("--osm-cache", type=Path)
@@ -304,60 +331,98 @@ def main():
     p.add_argument("--bounds", nargs=4, type=float, metavar=("WEST", "SOUTH", "EAST", "NORTH"),
                    help="Only model the buffered tiles intersecting this lon/lat area")
     args = p.parse_args()
-    if not args.time.endswith("Z"):
+    if args.event_list:
+        if any((args.event, args.time, args.weather)):
+            p.error("Use --event-list or the single-event arguments together")
+        definitions = read(args.event_list)
+    else:
+        if not all((args.event, args.time, args.weather)):
+            p.error("Provide --event, --time and --weather")
+        definitions = {args.event: {"time": args.time, "weather": args.weather}}
+    if any(not row["time"].endswith("Z") for row in definitions.values()):
         p.error("Use an explicit UTC time ending in Z")
     if not (args.osm or args.osm_cache) or not (args.lidar or (args.dtm and args.dsm)):
         p.error("Provide OSM inputs and co-registered terrain/surface rasters")
-    args.when = datetime.fromisoformat(args.time[:-1])
     to_grid, to_geo = (Transformer.from_crs(a, b, always_xy=True) for a, b in ((4326, args.crs), (args.crs, 4326)))
     feature = read(args.boundary)
-    geom = shape(feature["geometry"]) if feature["type"] == "Feature" else shapely.union_all([shape(f["geometry"]) for f in feature["features"]])
-    boundary = shapely.transform(shapely.make_valid(geom), to_grid.transform, interleaved=False)
+    original = feature["geometry"] if feature["type"] == "Feature" else None
+    geom = shape(original) if original else shapely.union_all([shape(f["geometry"]) for f in feature["features"]])
+    boundary = projected_boundary(geom, to_grid)
     args.work.mkdir(parents=True, exist_ok=True)
     args.out.mkdir(parents=True, exist_ok=True)
     roads, buildings = network(args, boundary, to_grid, to_geo)
-    forcing, n_locations = weather_at(args.weather, args.when, to_grid)
-    extent = boundary if not args.bounds else boundary.intersection(shapely.transform(box(*args.bounds), to_grid.transform, interleaved=False))
+    events = {}
+    for name, definition in definitions.items():
+        when = datetime.fromisoformat(definition["time"][:-1])
+        weather = Path(definition["weather"])
+        if args.event_list and not weather.is_absolute():
+            weather = args.event_list.parent / weather
+        forcing, n_locations = weather_at(weather, when, to_grid)
+        output = args.out / args.city / name / "city-street" if args.event_list else args.out
+        output.mkdir(parents=True, exist_ok=True)
+        events[name] = (when, forcing, n_locations, output)
+    extent = boundary if not args.bounds else boundary.intersection(projected_boundary(box(*args.bounds), to_grid))
     if extent.is_empty:
         p.error("The requested area does not intersect the administrative boundary")
-    w, s, e, n = extent.bounds
-    origins = [(x, y) for y in range(int(s)//CORE*CORE, math.ceil(n/CORE)*CORE, CORE)
-               for x in range(int(w)//CORE*CORE, math.ceil(e/CORE)*CORE, CORE) if extent.intersects(box(x, y, x+CORE, y+CORE))]
-    print(f"{len(origins)} buffered tiles", flush=True)
+    origins = origins_for(extent)
+    print(f"{len(origins)} buffered tiles × {len(events)} event timestamps", flush=True)
 
     def work(origin):
         x, y = origin
         key = f"{x}_{y}"
-        file, info = (args.out / f"{key}.{ext}" for ext in ("bin", "json"))
-        if info.exists() and (file.exists() or not read(info)["cells"]):
-            return read(info)
-        packed, count, missing = run_tile(args, x, y, boundary, roads, buildings, forcing, to_geo)
-        shape_wgs = shapely.transform(box(x, y, x + CORE, y + CORE), to_geo.transform, interleaved=False)
-        meta = {"file": file.name, "bounds": shape_wgs.bounds, "samples": count, "missing": missing, "cells": len(packed["rows"]) if packed else 0,
-                "pairs": packed["paired"] if packed else 0, "routeM": packed["routeM"] if packed else 0}
-        if packed:
-            save(file, packed, True)
-        save(info, meta)
-        return meta
+        results, pending = {}, {}
+        for name, (when, forcing, _, output) in events.items():
+            file = output / f"{key}.bin"
+            info = output / f"{key}.json"
+            if info.exists():
+                previous = read(info)
+                if file.exists() or not previous["cells"]:
+                    results[name] = previous
+                    continue
+            pending[name] = (when, forcing)
+        if not pending:
+            return results
+        inputs = run_tile(args, x, y, extent, roads, buildings, pending, to_geo)
+        bounds = projected_boundary(box(x, y, x + CORE, y + CORE), to_geo).bounds
+        for name, (packed, count, missing, candidate_m, missing_m) in inputs.items():
+            output = events[name][-1]
+            file = output / f"{key}.bin"
+            meta = {"file": file.name, "bounds": bounds, "samples": count, "missing": missing,
+                    "cells": len(packed["rows"]) if packed else 0, "pairs": packed["paired"] if packed else 0,
+                    "routeM": packed["routeM"] if packed else 0, "candidateM": round(candidate_m, 1),
+                    "missingM": round(missing_m, 1)}
+            if packed:
+                save(file, packed, True)
+            save(output / f"{key}.json", meta)
+            results[name] = meta
+        return results
 
+    per_case = {name: [] for name in events}
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        tiles = []
-        for i, item in enumerate(pool.map(work, origins), 1):
-            tiles.append(item)
+        for i, tile in enumerate(pool.map(work, origins), 1):
+            for name, item in tile.items():
+                per_case[name].append(item)
             if i % 10 == 0 or i == len(origins):
-                print(f"{i}/{len(origins)} tiles, {sum(t['cells'] for t in tiles)} walking cells", flush=True)
-    manifest = {"city": args.city, "event": args.event, "scope": "selected" if args.bounds else "city",
-                "timeUtc": args.time, "source": args.source, "engine": "SOLWEIG " + solweig.__version__,
-                "terrainM": PIXEL, "gridM": GRID, "weatherLocations": n_locations,
-                "bounds": (shapely.transform(extent, to_geo.transform, interleaved=False).bounds if args.bounds else geom.bounds),
-                "geometry": mapping(shapely.simplify(geom, .00003, preserve_topology=True)),
-                "cells": sum(t["cells"] for t in tiles), "pairedCells": sum(t["pairs"] for t in tiles),
-                "samples": sum(t["samples"] for t in tiles), "missing": sum(t["missing"] for t in tiles),
-                "tiles": [t for t in tiles if t["cells"]]}
-    if not manifest["cells"]:
-        raise ValueError("No valid walking cells")
-    save(args.out / "manifest.json", manifest)
-    print(json.dumps({k: manifest[k] for k in ("scope", "timeUtc", "cells", "pairedCells", "missing", "samples")}), flush=True)
+                print(f"{i}/{len(origins)} tiles × {len(events)} events", flush=True)
+    for name, tiles in per_case.items():
+        when, _, n_locations, output = events[name]
+        manifest = {"city": args.city, "event": name, "scope": "selected" if args.bounds else "city",
+                    "timeUtc": when.isoformat() + "Z", "source": args.source, "engine": "SOLWEIG " + solweig.__version__,
+                    "terrainM": PIXEL, "gridM": GRID, "weatherLocations": n_locations,
+                    "bounds": (projected_boundary(extent, to_geo).bounds if args.bounds else geom.bounds),
+                    "geometry": mapping(shapely.simplify(geom, .00003, preserve_topology=True)),
+                    "boundary": original or mapping(geom), "modelTiles": len(tiles), "crs": args.crs,
+                    "cells": sum(t["cells"] for t in tiles), "pairedCells": sum(t["pairs"] for t in tiles),
+                    "samples": sum(t["samples"] for t in tiles), "missing": sum(t["missing"] for t in tiles),
+                    "representedLengthM": round(sum(t["routeM"] for t in tiles)),
+                    "tiles": [t for t in tiles if t["cells"]]}
+        if all("candidateM" in t and "missingM" in t for t in tiles):
+            manifest["candidateM"] = round(sum(t["candidateM"] for t in tiles))
+            manifest["missingM"] = round(sum(t["missingM"] for t in tiles))
+        if not manifest["cells"]:
+            raise ValueError(f"No valid walking cells for {name}")
+        save(output / "manifest.json", manifest)
+        print(json.dumps({k: manifest[k] for k in ("event", "scope", "timeUtc", "cells", "pairedCells", "missing", "samples")}), flush=True)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,11 @@
 # Heatline changelog
 
+## v16 — Full Utrecht FUA pedestrian heat for July 2022
+
+- Publish a SOLWEIG run for the official Utrecht FUA footprint on 18 July 2022 at 10:52 UTC. The model has 46,814 walking cells, 1,163 eligible sun/shade pairs and about 9,081 km of represented routes.
+- Keep July 2022 Greater London and the previously scoped models. The four other Utrecht heatwave timestamps retain De Bilt municipality coverage until their independent full-area runs pass verification.
+- Allow multiple historical weather timestamps to share terrain and sky-view preparation. Check the published boundary, event time and tile data before registering an expanded run.
+
 ## v15 — Functional urban areas and 100 m population analysis
 
 - Import the eight Heatline FUA v3 outlines. Keep Greater London and use metropolitan polygons for the other seven areas. Utrecht replaces the De Bilt study-area entry.

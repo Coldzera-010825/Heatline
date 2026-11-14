@@ -36,6 +36,15 @@ extracts and the residual-height canopy proxy can differ from conditions on
 the model date. Do not interpret these samples as a whole-city pedestrian
 ranking or a comparison of social groups.
 
+Full study-area runs are recorded case by case in
+`cityStreetModels` in the published catalog. The two verified full footprints
+are Greater London and the Utrecht FUA, both on 18 July 2022 at 10:52 UTC.
+Utrecht uses 353 buffered model tiles, 60 weather locations, and about 9,081 km
+of represented walking routes. It excludes routes without valid geometry or
+terrain, and cells under the minimum route length. The date refers to one
+simulated instant. The other events use their recorded municipality or pilot
+footprints.
+
 For street comparisons, the six European areas use a common morning UTC
 snapshot on 25 July 2019, 7 August 2020, 18 July 2022, 1 July 2025, or
 26 June 2026. The Pacific Northwest uses 28 June 2021 at 20:00 UTC. The weather
@@ -64,6 +73,8 @@ For a new administrative-area run, provide the boundary, co-registered 5 m
 DSM and DTM, walkable network and buildings, and hourly UTC air temperature,
 relative humidity, 10 m wind in km/h and shortwave radiation. Run
 `prepare-city-street.py --help` for the input contract and sample-time options.
+Use `--event-list` to reuse each tile's terrain and sky-view preparation across
+multiple timestamps, each with its own hourly weather and SOLWEIG radiation.
 Use a new output directory whenever inputs or model settings change. Run
 `node prepare-street-catalog.mjs <completed-runs-directory>` to publish the
 resulting radiation inputs into the data catalog. The hosted Worker calculates

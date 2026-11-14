@@ -202,4 +202,17 @@ for (const kind of ["exposure", "shade"]) {
 }
 assert.equal((await api({ archiveCase: archiveCase("Lille"), kind: "exposure", coverage: "city" })).status, "unavailable");
 assert.equal((await api({ archiveCase: archiveCase("Amsterdam", "X1_2018-07"), kind: "shade" })).status, "unavailable");
+const utrecht = admin.cityStreetModels.Utrecht["E3_2022-07"];
+assert.equal(utrecht.scope, "city");
+assert.equal(utrecht.modelTiles, 353);
+assert.equal(utrecht.representedLengthM, 9081417);
+const fullUtrecht = await api({ archiveCase: archiveCase("Utrecht"), kind: "exposure", coverage: "city", mapFormat: "compact" });
+assert.equal(fullUtrecht.analysis.cellCount, 46814);
+assert.equal(fullUtrecht.analysis.coverage.tiles, 353);
+const outsideDeBilt = await api({ archiveCase: archiveCase("Utrecht"), kind: "exposure", bounds: [5.105, 52.084, 5.11, 52.089] });
+assert(outsideDeBilt.ok && outsideDeBilt.analysis.cellCount > 0);
+const oldLink = await api({ archiveCase: archiveCase("DeBilt"), kind: "exposure", bounds: [5.105, 52.084, 5.11, 52.089] });
+assert.equal(oldLink.analysis.cellCount, outsideDeBilt.analysis.cellCount);
+const wrongUtrechtDay = await api({ archiveCase: archiveCase("Utrecht"), kind: "exposure", coverage: "city", date: "2022-07-19" });
+assert.equal(wrongUtrechtDay.status, "unavailable");
 console.log("Administrative masks, event matching, population and street analysis passed.");
