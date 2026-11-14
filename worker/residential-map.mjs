@@ -1,7 +1,7 @@
 // Group points into roughly 500 m cells in a local metric grid. Keep a
 // longitude/latitude rectangle for display and clip it in the map.
-export function residentialTiles(points, latitude) {
-  const dy = 500 / 111195, dx = dy / Math.cos(latitude * Math.PI / 180);
+export function residentialTiles(points, latitude, metres = 500) {
+  const dy = metres / 111195, dx = dy / Math.cos(latitude * Math.PI / 180);
   const tiles = new Map();
   for (const [lon, lat, temperature, weights, denominators] of points) {
     if (!Number.isFinite(temperature) || !weights.all) continue;

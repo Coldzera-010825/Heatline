@@ -1,5 +1,12 @@
 # Heatline changelog
 
+## v15 — Functional urban areas and 100 m population analysis
+
+- Import the eight Heatline FUA v3 outlines. Keep Greater London and use metropolitan polygons for the other seven areas. Utrecht replaces the De Bilt study-area entry.
+- Update the 32 dated spatial cases with the new boundary-clipped Landsat, vegetation, water, land-cover, elevation and population layers, plus FUA-weighted ERA5-Land and available station observations.
+- Recompute residential surface heat and census-group comparisons for full areas or drawn selections using 100 m population weights. Display the supplied 500 m overview in the seven FUAs. Select a comparable event-core Landsat date when one exists.
+- Bind live UTCI and shade calculations to the documented walking-network footprint. Full studies, municipality subsets and pilots show their own extent. Full-FUA claims require full-footprint radiation inputs.
+
 ## v14 — Faster delivery of citywide maps
 
 - Send a smaller 500 m overview for dense street heat and shade results. Load 100 m cells as users zoom into the selection. All measurements continue to use the 100 m calculation grid.

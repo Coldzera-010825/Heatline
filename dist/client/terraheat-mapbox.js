@@ -23,7 +23,7 @@
       "A paired cell has at least 20 m of sunlit paths and 20 m of building-shaded paths. The model uses the same event time and weather for both scenarios.",
       ["What if 25% of sunlit paths were shaded?", "Add shade to 50% of sunlit walking routes"]],
     ["compare", "Compare cities", "How did heat exposure differ?", "Compare residential surface heat or walking heat stress during the same historical event.",
-      "Residential heat matches clear Landsat pixels to GHS-POP 2020 within city boundaries. A difference requires same-day, in-event overpasses within 90 minutes of local solar time and at least 80% population coverage in both cities. Walking heat uses same-time SOLWEIG pilots and weights 100 m cells by walking length.",
+      "Residential heat matches clear Landsat pixels to GHS-POP 2020 within the published study areas. A difference requires same-day, in-event overpasses within 90 minutes of local solar time and at least 80% population coverage in both areas. Walking heat compares same-time SOLWEIG pilots and weights 100 m cells by walking length.",
       ["Compare Paris and Amsterdam in 2020", "Compare Portland and Seattle walking UTCI in 2021"]],
   ];
   const globalChapter = ["globe", "", "July heat around the world", "Replay daily maximum air temperature over land from 13 to 19 July 2022.",
@@ -52,6 +52,7 @@
   const detailedEvent = "E3_2022-07";
   const legacyDetailedEvent = "london-detail";
   const isDetailed = (region, event) => region === "London" && [detailedEvent, legacyDetailedEvent].includes(event);
+  const normalizeRegion = region => region === "DeBilt" ? "Utrecht" : region;
   const lastCase = new Map();
   let adminCatalog, detailedClip;
   let caseCatalog, caseRegion = "London", caseEvent = detailedEvent, caseLoading = false, caseRequest = 0;
@@ -69,8 +70,13 @@
   const area = () => areas.get(stage);
   const usingArchive = () => Boolean(archiveState) && stage >= 0 && stage < 4;
   const cityStreetModel = () => adminCatalog?.cityStreetModels?.[caseRegion]?.[caseEvent];
-  const census = () => adminCatalog?.cities[caseRegion]?.census;
-  const canCompareGroups = () => !usingArchive() || Boolean(census() && archiveState.event.snapshot?.census?.coverage > 0);
+  const displayedSnapshot = () => archiveState?.selected[1] === "lst_core_c" ? archiveState.event.coreSnapshot : archiveState?.event.snapshot;
+  const census = () => {
+    const city = adminCatalog?.cities[caseRegion];
+    return usingArchive() && displayedSnapshot()?.surfacePacked ? city?.metroCensus ?? city?.census : city?.census;
+  };
+  const canCompareGroups = () => !usingArchive() || Boolean(displayedSnapshot()?.census?.coverage > 0 ||
+    census()?.coverage > 0 && displayedSnapshot()?.surfacePacked);
   const archiveLayer = () => archiveState?.layers.find(layer => layer.id === archiveState.selected[stage]);
   const adminPath = file => "data/admin/" + file;
   const streetKeys = ["case-utci", "case-baseline", "case-scenario"];
@@ -86,13 +92,13 @@
     if (!usingArchive()) return row;
     const city = archiveState.admin.adminName;
     const content = [
-      ["How hot did " + city + " get?", "Explore available weather, station and satellite evidence for this historical case.",
+      ["How hot did " + archiveState.admin.name + " get?", "Explore weather, station and satellite evidence across " + city + ".",
         "Landsat LST is a surface snapshot. NOAA observations measure station air temperature; gridded air temperature is regional context.",
         ["Analyse event weather", "Open Landsat LST"]],
       ["Who was exposed?", "Estimate residential surface heat inside " + city + ", or draw a smaller area to inspect its distribution.",
-        "Match quality-screened Landsat to residential locations and use the available census groups for this city.",
+        "Match quality-screened Landsat to 100 m residential population cells. Census groups cover the reported local study area.",
         ["Calculate population exposure", "Compare residents aged 65+"]],
-      ["Where was it hottest to walk?", cityStreetModel() ? "Draw an area or use the administrative area to calculate heat along its walking network." :
+      ["Where was it hottest to walk?", archiveState.street?.scope === "city" ? "Draw an area or use the study area to calculate heat along its walking network." :
         "Draw an area within the model coverage to calculate heat along its walking network.",
         "SOLWEIG estimates radiation using terrain, buildings and canopy. UTCI adds air temperature, humidity and wind. We weight the 100 m cells by represented walking length.",
         ["Calculate pedestrian UTCI", "How is UTCI calculated?"]],
@@ -117,7 +123,7 @@
     if (usingArchive() && stage >= 2) return results.has(stage) ? stage === 2 ? "case-utci" : "case-" + variants[3] : null;
     if (usingArchive() && stage === 1 && results.has(1)) {
       if (results.get(1).event?.kind === "population") return variants[1];
-      if (results.get(1).event?.metricTiles?.length) return "archive-population-map";
+      if (results.get(1).event?.packedMap?.rows.length || results.get(1).event?.metricTiles?.length) return "archive-population-map";
     }
     if (usingArchive()) return archiveLayer() ? "case-" + archiveLayer().id : null;
     if (stage === 0) return cityLayer;
@@ -447,7 +453,7 @@
 
   function initializeCases() {
     const anchor = location.hash.slice(1), index = anchor === "outlook" ? 3 : chapters.findIndex(row => row[0] === anchor);
-    const url = new URL(location.href), region = url.searchParams.get("city"), event = url.searchParams.get("event");
+    const url = new URL(location.href), region = normalizeRegion(url.searchParams.get("city")), event = url.searchParams.get("event");
     const deepCase = Boolean(region) && index !== 4;
     if (!deepCase) openChapter(index, false);
     const adminArchive = A.readAdmin("catalog.bin").catch(() => A.readAdmin("catalog.json"));
@@ -499,13 +505,14 @@
     for (const key of streetKeys) {
       L.layers[key] = { ...L.layers[key.slice(5)], source: archiveState.street ? archiveState.street.engine + " · " +
         archiveState.street.timeUtc.slice(0, 16).replace("T", " ") + " UTC · " +
-        (archiveState.street.scope === "city" ? "city model" : "pilot coverage") : "" };
+        (archiveState.street.scope === "city" ? "full study area" : archiveState.street.label) : "" };
       L.attr[key] = archiveState.street?.source;
     }
   }
 
   async function chooseCase(region, event, index = 0, animate = true) {
     if (!ready) return false;
+    region = normalizeRegion(region);
     const city = caseCatalog?.cities.find(item => item.id === region);
     if (!city && region !== "London") return false;
     if (event && !isDetailed(region, event) && !city?.cases.some(record => record.id === event)) return false;
@@ -573,11 +580,12 @@
     const state = archiveState, { data } = state;
     const layer = $("archive-layer");
     if (stage < 2) {
-      layer.replaceChildren(...state.layers.map(item => new Option(item.label, item.id)));
-      if (!state.layers.some(item => item.id === state.selected[stage])) state.selected[stage] = state.layers[0]?.id;
+      const shown = stage === 1 ? state.layers.filter(item => ["lst_c", "lst_core_c"].includes(item.id)) : state.layers;
+      layer.replaceChildren(...shown.map(item => new Option(item.label, item.id)));
+      if (!shown.some(item => item.id === state.selected[stage])) state.selected[stage] = shown[0]?.id;
       layer.value = state.selected[stage];
     }
-    $("archive-layer-row").hidden = stage >= 2 || stage === 1 && results.has(1);
+    $("archive-layer-row").hidden = stage >= 2;
     $("archive-model-row").hidden = !data.alternative || stage !== 0;
     $("archive-model").replaceChildren(new Option("ERA5-Land · 0.1°", "land"),
       ...(data.alternative ? [new Option("ERA5 · 0.25° alternative", "era5")] : []));
@@ -629,11 +637,16 @@
     if (!usingArchive()) return false;
     if (stage >= 2) return stage === 2 && id === "case-utci" && results.has(stage);
     if (!archiveState.layers.some(item => item.id === id)) return false;
+    if (stage === 1 && !["lst_c", "lst_core_c"].includes(id)) return false;
     archiveState.selected[stage] = id;
+    if (stage === 1 && results.delete(1)) renderResult();
     popup?.remove();
     hover?.remove();
     clearGrid();
     updateArchiveControls();
+    if (stage === 1) {
+      renderChapter();
+    }
     refreshGrid();
     if (stage === 0) suggestions();
     return true;
@@ -691,7 +704,7 @@
       const feature = { type: "Feature", geometry: { type: "Polygon", coordinates: [ring] },
         properties: { lon, lat, value, path_m, meters: overview ? 500 : 100 } };
       const bounded = selection ? L.clip(feature, selection) : feature;
-      const local = bounded && overview ? clipFeature(clip, bounded) : bounded;
+      const local = bounded ? clipFeature(clip, bounded) : bounded;
       return local ? [local] : [];
     });
   }
@@ -725,7 +738,7 @@
     let detail = streetDetails.get(result);
     if (detail?.key !== key) {
       const promise = receive("/api/analysis", {
-        kind, bounds, coverage: "city", mapOnly: true, mapFormat: "compact",
+        kind, bounds, coverage: usingArchive() && archiveState.street?.scope !== "city" ? undefined : "city", mapOnly: true, mapFormat: "compact",
         archiveCase: { region: caseRegion, event: caseEvent }, shadePercent: result.event?.shadePercent,
       }, () => {}).catch(() => undefined);
       detail = { key, promise };
@@ -743,7 +756,7 @@
     const result = results.get(stage);
     const selected = area()?.bounds;
     const viewport = streetKeys.includes(key) ? detailWindow(result, selected) : undefined;
-    const popResult = stage === 1 && Boolean(result?.event?.tiles?.length || result?.event?.metricTiles?.length) &&
+    const popResult = stage === 1 && Boolean(result?.event?.tiles?.length || result?.event?.metricTiles?.length || result?.event?.packedMap?.rows.length) &&
       populationLayers.includes(key);
     const meta = detailed ? { ...detailed, type: "raster" } : usingArchive() && !popResult && archiveLayer();
     if (detailed) { L.layers[key] = meta; L.attr[key] = meta.source; }
@@ -758,8 +771,11 @@
       let streetResolution;
       if (popResult) {
         const selection = area()?.bounds;
-        const { metricTiles, tiles, timeUtc, censusSource } = result.event;
-        const population = metricTiles ? L.residentialResultGrid(metricTiles, key) : L.populationGrid(tiles, key);
+        const { metricTiles, packedMap, tiles, timeUtc, censusSource } = result.event;
+        const compact = packedMap?.rows.map(([col, row, temp, pop, groups]) => [(col + packedMap.origin[0]) * packedMap.step[0],
+          (row + packedMap.origin[1]) * packedMap.step[1], ...packedMap.step, temp, pop, groups ?? {}]);
+        const metres = packedMap?.metres ?? 500;
+        const population = metricTiles || compact ? L.residentialResultGrid(metricTiles ?? compact, key, metres) : L.populationGrid(tiles, key);
         const source = key === "archive-population-map" ? "GHS-POP 2020 + Landsat" : censusSource ?? census()?.source ?? "Census 2021";
         const label = key === "limited" ? census()?.groups?.limited?.includes("disability") ?
           "Resident share with a disability" : "Resident share with limited activities" : L.layers[key].label;
@@ -780,7 +796,8 @@
         const source = key === "case-utci" ? display?.analysis?.features?.features ?? [] : shadeFeatures(display?.event);
         features = source.flatMap(feature => {
           const bounded = selected ? L.clip(feature, selected) : feature;
-          const cell = bounded && feature.properties.meters === 500 ? clipFeature(state.clip, bounded) : bounded;
+          const cell = bounded && (feature.properties.meters === 500 || state.street?.boundaryClipped) ?
+            clipFeature(state.clip, bounded) : bounded;
           return cell ? [{ ...cell, properties: { ...cell.properties, value: key === "case-utci" ? cell.properties.utci : cell.properties[key.slice(5)] } }] : [];
         });
       } else if (meta.type === "raster") {
@@ -807,8 +824,8 @@
       gridKey = key;
       drawnGrid = L.collection(features);
       barsGrid = undefined;
-      resolution = popResult ? "500 m result grid" : streetKeys.includes(key) ? streetResolution :
-        meta.type === "air" ? "administrative boundary" : "";
+      resolution = popResult ? (result.event.packedMap?.metres ?? 500) + " m result grid" : streetKeys.includes(key) ? streetResolution :
+        meta.type === "air" ? "study boundary" : "";
       map.getSource("metric-grid").setData(drawnGrid);
       map.setPaintProperty("metric-fill", "fill-color", L.color(key));
       map.setPaintProperty("metric-extrusion", "fill-extrusion-color", L.color(key));
@@ -1364,14 +1381,16 @@
       summary.append(panel);
     }
     const first = totals[0], second = totals[1];
+    const hasDistribution = first?.histogram.length && second?.histogram.length;
     const headline = sameScale ? "Comparable overpasses · " + sharedDate : "No like-for-like comparison";
     const notice = R.element("div", null, "comparison-note");
     notice.append(R.element("strong", headline), R.element("p", sameScale ?
       regions[0].name + " minus " + regions[1].name + ": " + R.format(first.mean - second.mean) +
-      "°C in mean residential LST and " + R.format(100 * (first.above - second.above), 1) + " percentage points at ≥" + threshold + "°C." :
+      "°C in mean residential LST" + (hasDistribution ? " and " + R.format(100 * (first.above - second.above), 1) +
+        " percentage points at ≥" + threshold + "°C." : ".") :
       reasons.join(" ") + " The cards report each available snapshot separately."));
     node.replaceChildren(notice, summary);
-    if (sameScale) node.append(R.seriesLegend(regions.map(city => city.name)), R.bars(
+    if (sameScale && hasDistribution) node.append(R.seriesLegend(regions.map(city => city.name)), R.bars(
       "Share of matched residents by LST band (°C)",
       A.bins(bins).map((label, i) => [label, first.histogram[i], second.histogram[i]])));
     node.append(R.element("p", "The map shows surface temperature. The chart weights it by the estimated residential population. The 45°C band is a map comparison threshold.", "data-note"), frame);
@@ -1425,7 +1444,8 @@
     gridKey = key;
     resolution = "";
     if (key === "regional-utci") {
-      drawnGrid = L.collection(state.street.cities.flatMap(city => city.features.features));
+      drawnGrid = L.collection(state.street.cities.flatMap((city, i) =>
+        city.features.features.map(feature => state.regions[i].pilot.boundaryClipped ? clipFeature(state.regions[i].clip, feature) : feature).filter(Boolean)));
       map.getSource("metric-grid").setData(drawnGrid);
       map.setPaintProperty("metric-fill", "fill-color", L.color(key));
       map.setPaintProperty("metric-extrusion", "fill-extrusion-color", L.color(key));
@@ -1473,28 +1493,44 @@
       if (!event) throw new Error("This event is not in the archive.");
       const available = Object.entries(adminCatalog.cities).flatMap(([id, city]) => city.events[event.id] && !city.events[event.id].pointOnly ?
         [{ id, ...city, snapshot: city.events[event.id].snapshot, pilot: adminCatalog.streetModels?.[id]?.[event.id] }] : []);
-      const a = available.find(region => region.id === (options.firstRegion ?? (first.value || "Paris"))) ?? available[0];
-      const b = available.find(region => region.id === (options.secondRegion ?? (second.value || "Amsterdam")) && region !== a) ??
+      const a = available.find(region => region.id === normalizeRegion(options.firstRegion ?? (first.value || "Paris"))) ?? available[0];
+      const b = available.find(region => region.id === normalizeRegion(options.secondRegion ?? (second.value || "Amsterdam")) && region !== a) ??
         available.find(region => region !== a);
       if (!a || !b) throw new Error("Two cities are required.");
       const shapes = await Promise.all([a, b].map(region => A.readAdmin(region.boundary)));
       if (stage !== 4 || id !== regionalRequest) return;
-      const [x, y] = [a, b].map(city => city.snapshot);
-      const sharedDate = x && y && x.datetime.slice(0, 10) === y.datetime.slice(0, 10) ? x.datetime.slice(0, 10) : null;
+      const candidates = [a, b].map(city => {
+        const record = city.events[event.id];
+        const scenes = [record.snapshot, record.coreSnapshot].filter(Boolean);
+        const dated = scenes.filter(snapshot => (!options.date || snapshot.datetime.slice(0, 10) === options.date) &&
+          (!options.day || Number(snapshot.datetime.slice(8, 10)) === options.day) &&
+          (!options.time || (snapshot.times ?? [snapshot.datetime]).some(time => time.slice(11).startsWith(options.time))));
+        return dated.length ? dated : scenes;
+      });
       const { minimumMatch, maxSolarMinutes, threshold, bins } = adminCatalog.comparison;
+      const gapMinutes = (x, y) => Math.abs((Date.parse(x.datetime) - Date.parse(y.datetime)) / 60000 + 4 * (a.center[0] - b.center[0]));
+      const validPair = (x, y) => x.inCore && y.inCore && x.datetime.slice(0, 10) === y.datetime.slice(0, 10) &&
+        gapMinutes(x, y) <= maxSolarMinutes && Math.min(x.summary.match, y.summary.match) >= minimumMatch &&
+        [x.summary.mean, y.summary.mean].every(Number.isFinite);
+      const alternatives = candidates[0].flatMap(x => candidates[1].map(y => [x, y]));
+      const [x, y] = alternatives.find(([x, y]) => validPair(x, y)) ?? candidates.map(scenes => scenes[0]);
+      a.snapshot = x;
+      b.snapshot = y;
+      const sharedDate = x && y && x.datetime.slice(0, 10) === y.datetime.slice(0, 10) ? x.datetime.slice(0, 10) : null;
       const reasons = [];
       if (!x || !y) reasons.push("At least one city has no archived Landsat scene.");
       else {
         if (!sharedDate) reasons.push("The Landsat scenes were acquired on different dates.");
         if (!x.inCore || !y.inCore) reasons.push("At least one overpass falls outside the heatwave’s core dates.");
-        const gap = Math.abs((Date.parse(x.datetime) - Date.parse(y.datetime)) / 60000 + 4 * (a.center[0] - b.center[0]));
+        const gap = gapMinutes(x, y);
         if (sharedDate && gap > maxSolarMinutes) reasons.push("The local solar overpass times are more than " + maxSolarMinutes + " minutes apart.");
-        if (Math.min(x.summary.match, y.summary.match) < minimumMatch) reasons.push("At least one scene matches less than " + minimumMatch * 100 + "% of the city’s estimated residents.");
+        if (Math.min(x.summary.match, y.summary.match) < minimumMatch) reasons.push("At least one scene matches less than " + minimumMatch * 100 + "% of the area’s estimated residents.");
+        if (![x.summary.mean, y.summary.mean].every(Number.isFinite)) reasons.push("At least one study area has no matched residents.");
       }
       if ((options.date && sharedDate !== options.date) || (options.day && Number(sharedDate?.slice(-2)) !== options.day)) {
         reasons.push("The archive has no comparable overpasses for the requested day.");
       }
-      if (options.time && [x, y].some(snapshot => !snapshot || !snapshot.datetime.slice(11).startsWith(options.time))) {
+      if (options.time && [x, y].some(snapshot => !snapshot || !(snapshot.times ?? [snapshot.datetime]).some(t => t.slice(11).startsWith(options.time)))) {
         reasons.push("The archive has no pair of overpasses at the requested UTC time.");
       }
       eventSelect.replaceChildren(...Object.entries(compareEvents).map(([id, label]) => new Option(label, id)));
@@ -1538,7 +1574,7 @@
       frameRegional(animate);
       return regionalState.sameScale ?
         sharedDate + " UTC · " + a.name + " " + x.summary.mean.toFixed(2) + "°C and " + b.name + " " + y.summary.mean.toFixed(2) +
-        "°C population-weighted Landsat LST. See the map and resident distribution in the comparison panel." :
+        "°C population-weighted Landsat LST. See the comparison panel for maps and coverage." :
         "These snapshots cannot be directly compared. " + reasons.join(" ") + " The available dated snapshots are on the map.";
     } catch {
       if (stage === 4 && id === regionalRequest) node.textContent = "The comparison could not load. Reopen this chapter to retry.";
@@ -1589,25 +1625,26 @@
     const selection = area();
     if (!selection) return;
     const place = stage === 1 ? results.get(1)?.event?.place : undefined;
-    const cityModel = stage >= 2 && cityStreetModel();
+    const model = stage >= 2 && (usingArchive() ? archiveState.street : cityStreetModel());
+    const fullModel = model?.scope === "city";
     const archived = usingArchive() && (stage === 1 ? archiveState.event.snapshot : archiveState.street);
     const time = archived?.datetime ?? archived?.timeUtc;
     $("area-name").textContent = place && !selection.bounds ? place : selection.bounds ? "Drawn area" : usingArchive() ?
       stage === 1 ? archiveState.admin.adminName : archiveState.street?.label ?? "Street model unavailable" : !selection.chosen ? "Select the analysis area" :
-      stage === 3 && !cityModel ? "Central London paired pilot" : "Greater London";
+      stage === 3 && !fullModel ? "Central London paired pilot" : "Greater London";
     $("area-hint").textContent = drawing ? (corner ? "Click the opposite corner." : "Click one corner on the map.") :
       usingArchive() ? time ? time.slice(0, 16).replace("T", " ") + " UTC" : stage === 1 ? "No valid residential Landsat snapshot" : "No model for this event" :
       stage === 1 ? "Landsat 9 · 18 July 2022 · 10:52 UTC" : "18 July 2022 · 10:52 UTC";
     $("draw-area").textContent = drawing ? "Cancel drawing" : "Draw area";
     $("draw-area").setAttribute("aria-pressed", String(drawing));
-    $("full-area").textContent = stage === 1 || cityModel ? "Use administrative area" :
+    $("full-area").textContent = stage === 1 || fullModel ? (usingArchive() && archiveState.admin.scope === "functional_urban_area" ?
+      "Use functional urban area" : "Use Greater London") :
       usingArchive() ? "Use model coverage" : stage === 3 ? "Use paired pilot" : "Use Greater London";
     $("full-area").setAttribute("aria-pressed", String(selection.chosen && !selection.bounds));
     const coverage = $("area-coverage");
     coverage.hidden = stage < 2;
-    coverage.textContent = stage === 3 ? "The scenario applies only to cells with enough sunlit and building-shaded path." +
-      (cityModel ? "" : " Paired data cover the outlined pilot.") :
-      usingArchive() && !cityModel ? "This event has a pilot model. The administrative outline is for context." : "";
+    const limit = usingArchive() && model && !fullModel ? "Analysis is limited to " + model.label + "." : "";
+    coverage.textContent = [stage === 3 && "The scenario applies to cells with enough sunlit and building-shaded path.", limit].filter(Boolean).join(" ");
     if (!coverage.textContent) coverage.hidden = true;
   }
 
@@ -1904,8 +1941,8 @@
     }
     if (usingArchive() && stage >= 2 && archiveState.street) {
       const model = archiveState.street;
-      $("actions").append(R.element("p", (stage === 2 ? (model.cells ?? model.gridCells) + " modelled walking cells" :
-        model.pairedCells + " eligible shade cells") + " · " + (cityStreetModel() ? "administrative area" : "pilot coverage"), "data-note"));
+      const counts = stage === 2 ? (model.cells ?? model.gridCells) + " modelled walking cells" : model.pairedCells + " eligible shade cells";
+      $("actions").append(R.element("p", model.boundaryClipped ? model.label : counts + " · " + model.label, "data-note"));
     }
     if (key === "wow") { loadStations(); renderObservations(); }
     for (const [index, button] of [...$("chapter-nav").children].entries()) button.setAttribute("aria-current", String(stage === index));
@@ -2020,7 +2057,7 @@
       input.replaceChildren(...Object.entries(labels).map(([key, label]) => new Option(label, key)));
       input.value = !useDefaults && Object.hasOwn(labels, value) ? value : fallback;
     }
-    $("rank-boroughs").hidden = caseRegion !== "London" && !census()?.districts;
+    $("rank-boroughs").hidden = caseRegion !== "London" && !Object.keys(census()?.districts ?? {}).length;
     $("rank-boroughs").textContent = caseRegion === "London" ? "Rank London districts by group LST" : "Rank districts by group LST";
     syncPopulationOptions();
   }
@@ -2042,13 +2079,14 @@
       updateArchiveControls();
     }
     const request = {
-      kind, archiveCase: { region: caseRegion, event: caseEvent }, date: weatherAction ? archiveState.date : options.date, model: archiveState.model,
+      kind, archiveCase: { region: caseRegion, event: caseEvent }, date: weatherAction ? archiveState.date :
+        options.date ?? (index === 1 ? displayedSnapshot()?.datetime.slice(0, 10) : undefined), model: archiveState.model,
       station: archiveState.station, comparison: options.compare ? archiveState.comparison : undefined,
       stationPeriod: archiveState.stationPeriod, compare: options.compare,
       bounds: ["population", "groups", "exposure", "shade"].includes(kind) ? drawn : undefined,
       shadePercent: options.shadePercent ?? Number($("shade-percent").value), time: options.time, coverage: options.coverage,
     };
-    if ((kind === "exposure" || kind === "shade") && cityStreetModel()) request.mapFormat = "compact";
+    if (kind === "population" || kind === "groups" || (kind === "exposure" || kind === "shade") && cityStreetModel()) request.mapFormat = "compact";
     if (kind === "groups") {
       request.group = options.group ?? $("population-group").value;
       request.reference = options.reference ?? $("population-reference").value;
@@ -2092,6 +2130,10 @@
     else if (index >= 2 && archiveState.street) frameBounds(archiveState.street.bounds, 15.5, 42, 0);
     if (!weatherAction) {
       if (kind === "population" || kind === "groups") variants[1] = "residents";
+      if (kind === "population" || kind === "groups") {
+        const snapshot = archiveState.event.coreSnapshot;
+        archiveState.selected[1] = snapshot?.datetime === outcome.event.timeUtc ? "lst_core_c" : "lst_c";
+      }
       if (kind === "groups") {
         $("population-group").value = outcome.event.group;
         $("population-reference").value = outcome.event.reference;

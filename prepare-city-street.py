@@ -52,7 +52,7 @@ class Network(osmium.SimpleHandler):
         super().__init__()
         self.factory = osmium.geom.WKBFactory()
         self.bbox = bbox
-        self.roads, self.buildings = [], []
+        self.roads, self.buildings = {}, {}
 
     def way(self, way):
         t = way.tags
@@ -63,7 +63,7 @@ class Network(osmium.SimpleHandler):
         try:
             w, s, e, n = self.bbox
             if any(w <= p.lon <= e and s <= p.lat <= n for p in way.nodes):
-                self.roads.append(self.factory.create_linestring(way))
+                self.roads[way.id] = self.factory.create_linestring(way)
         except (RuntimeError, osmium.InvalidLocationError):
             pass
 
@@ -73,7 +73,7 @@ class Network(osmium.SimpleHandler):
         try:
             w, s, e, n = self.bbox
             if any(w <= p.lon <= e and s <= p.lat <= n for ring in area.outer_rings() for p in ring):
-                self.buildings.append(self.factory.create_multipolygon(area))
+                self.buildings[area.id] = self.factory.create_multipolygon(area)
         except (RuntimeError, osmium.InvalidLocationError):
             pass
 
@@ -84,9 +84,15 @@ def network(args, city, to_grid, to_geo):
         cache = args.osm_cache
     elif not cache.exists():
         bounds = shapely.transform(city.buffer(BUFFER + 100), to_geo.transform, interleaved=False).bounds
-        handler = Network(bounds)
-        handler.apply_file(str(args.osm), locations=True, idx="flex_mem")
-        save(cache, [handler.roads, handler.buildings], True)
+        ways, areas = {}, {}
+        for path in args.osm:
+            handler = Network(bounds)
+            handler.apply_file(str(path), locations=True, idx="flex_mem")
+            for retained, extracted in ((ways, handler.roads), (areas, handler.buildings)):
+                for identifier, wkb in extracted.items():
+                    if identifier not in retained or len(wkb) > len(retained[identifier]):
+                        retained[identifier] = wkb
+        save(cache, [list(ways.values()), list(areas.values())], True)
     with gzip.open(cache, "rt", encoding="utf8") as src:
         roads, buildings = json.load(src)
     print(f"Network: {len(roads)} walkable ways, {len(buildings)} building geometries", flush=True)
@@ -286,7 +292,7 @@ def main():
     p.add_argument("--city", required=True)
     p.add_argument("--event", required=True)
     p.add_argument("--source", required=True)
-    p.add_argument("--osm", type=Path)
+    p.add_argument("--osm", type=Path, action="append", help="OSM extract. Repeat for overlapping extracts.")
     p.add_argument("--osm-cache", type=Path)
     p.add_argument("--dtm", type=Path)
     p.add_argument("--dsm", type=Path)
