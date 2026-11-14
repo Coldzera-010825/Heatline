@@ -2,6 +2,7 @@ import { method, summarize } from "./analysis.mjs";
 import { analyzeShade } from "./event-analysis.mjs";
 import { matchesSnapshot } from "./request-time.mjs";
 import { evaluateStreetGrid } from "./utci.mjs";
+import { modelFootprint } from "./study-boundary.mjs";
 
 const overlaps = (a, b) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
 const contains = (bounds, x, y) => bounds[0] <= x && x <= bounds[2] && bounds[1] <= y && y <= bounds[3];
@@ -11,12 +12,13 @@ const detailLimit = 14000;
 async function evaluateCityStreet(model, bounds, shade, detail, progress, readAdmin) {
   const shards = model.shards.filter(shard => overlaps(shard.bounds, bounds));
   const rows = [], pairs = [];
+  const footprint = modelFootprint(model);
   progress("Reading SOLWEIG radiation for the selected part of " + model.label + "…");
   for (let i = 0; i < shards.length; i += 4) {
     const batch = await Promise.all(shards.slice(i, i + 4).map(shard => readAdmin(shard.file, "packed-json")));
     for (const tile of batch.flat()) {
       if (!overlaps(tile.bounds, bounds)) continue;
-      const selected = evaluateStreetGrid(tile, tile.weather, (lon, lat) => contains(bounds, lon, lat));
+      const selected = evaluateStreetGrid(tile, tile.weather, (lon, lat) => contains(bounds, lon, lat) && footprint(lon, lat));
       for (const row of selected.rows) rows.push(row);
       if (shade) for (const row of selected.pairs) pairs.push(row);
       if (shade || rows.length > detail) {
@@ -63,6 +65,7 @@ export async function analyzeCityStreet(body, model, city, progress, readAdmin) 
       model.timeUtc.slice(0, 16).replace("T", " ") + " UTC." };
   }
   const bounds = body.bounds ?? model.bounds;
+  const fullStudyArea = model.scope === "city";
   if (body.kind === "shade" && (!Number.isFinite(body.shadePercent ?? 25) || (body.shadePercent ?? 25) < 0 || body.shadePercent > 100)) {
     return { ok: false, status: "clarify", reply: "Choose a shade conversion percentage between 0 and 100." };
   }
@@ -71,8 +74,8 @@ export async function analyzeCityStreet(body, model, city, progress, readAdmin) 
   const { rows, pairs } = await evaluateCityStreet(model, bounds, body.kind === "shade", detail, progress, readAdmin);
   if (!rows.length) return noCells();
   if (body.kind === "shade") return analyzeShade({
-    bounds, shadePercent: body.shadePercent ?? 25, timeUtc: model.timeUtc, place: city.adminName, source: model.source, latitude: city.center[1],
-    coverage: { cells: rows.length, pathM: rows.reduce((sum, row) => sum + row[3], 0), city: true },
+    bounds, shadePercent: body.shadePercent ?? 25, timeUtc: model.timeUtc, place: model.label, source: model.source, latitude: city.center[1],
+    coverage: { cells: rows.length, pathM: rows.reduce((sum, row) => sum + row[3], 0), city: fullStudyArea, scope: model.scope },
     networkHeat: rows.reduce((sum, row) => sum + row[2] * row[3], 0),
     mapDetailLimit: detail, compact,
   }, progress, () => pairs);
@@ -82,11 +85,12 @@ export async function analyzeCityStreet(body, model, city, progress, readAdmin) 
   const summary = summarize(rows, bounds);
   return {
     ok: true, status: "complete",
-    reply: (body.bounds ? "In the selected area" : "Across the modelled city network") +
+    reply: (body.bounds ? "Within the selected part of " + model.label : "Across " + model.label) +
       ", walking-length-weighted UTCI was " + summary.meanUtci.toFixed(2) + "°C across " +
       summary.cellCount.toLocaleString("en-GB") + " grid cells.",
     analysis: {
-      ...summary, bounds, scope: body.bounds ? "selected" : "city", cityModel: true, timeUtc: model.timeUtc,
+      ...summary, bounds, scope: body.bounds ? "selected" : model.scope, cityModel: true, modelScope: model.scope,
+      modelLabel: model.label, timeUtc: model.timeUtc,
       source: model.engine + " · " + model.source,
       method: method + " UTCI is calculated from stored 5 m SOLWEIG radiation and the event-hour weather for each tile.",
       ...map,

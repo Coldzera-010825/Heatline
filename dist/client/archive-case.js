@@ -37,7 +37,7 @@
     const cover = state.admin.cover[detail ? "100" : "500"];
     const items = [snapshot?.layer, ...Object.values(state.event?.layers ?? {}), cover, ...Object.values(state.admin.layers)].filter(Boolean).map(layer => {
       const satellite = state.data.layers.some(item => item.id === layer.id) ? state.data.satellite : null;
-      const source = satellite && layer.id !== "lst_c" ? [layer.source, satellite.datetime.slice(0, 10),
+      const source = satellite?.datetime && layer.id !== "lst_c" ? [layer.source, satellite.datetime.slice(0, 10),
         satellite.in_core_period ? "event core snapshot" : "outside event core"].join(" · ") : layer.source;
       return { ...layer, type: "raster", source, range: layer.classes ? undefined : layer.range, colors: layer.classes ? undefined : layer.colors };
     });
@@ -130,7 +130,9 @@
     const weather = model(state), day = weather?.days[state.date];
     return day ? weather.cells.flatMap((cell, i) => {
       const value = day[i]?.[meta.index];
-      if (!cell.bounds || !finite(value)) return [];
+      if (!finite(value)) return [];
+      if (cell.geometry) return [{ type: "Feature", geometry: cell.geometry, properties: { value, date: state.date } }];
+      if (!cell.bounds) return [];
       const clipped = state.clip.clip(polygon(cell.bounds, { value, date: state.date }), cell.bounds);
       return clipped ? [clipped] : [];
     }) : [];
@@ -213,7 +215,8 @@
   }
 
   function preview(state, stage) {
-    const panel = R.element("div"), weather = weatherEvidence(state), snapshot = state.event?.snapshot;
+    const panel = R.element("div"), weather = weatherEvidence(state), snapshot =
+      state.selected[stage] === "lst_core_c" ? state.event?.coreSnapshot : state.event?.snapshot;
     if (stage === 0) {
       const { core, window } = state.event;
       panel.append(R.element("p", (core ? "Event core · " + labelDay(core[0]) + "–" + labelDay(core[1]) :
@@ -222,7 +225,7 @@
     if (stage === 0 && weather) {
       const day = weather.daily.find(row => row.date === state.date);
       panel.append(R.element("p", (day ? "Population-weighted Tmax " + degrees(day.values[0]) + " · " + percent(day.match) + " matched · " : "") +
-        weather.source + ". Regional weather context within the administrative boundary.", "data-note"),
+        weather.source + ". Regional weather context within the study boundary.", "data-note"),
       chart("Daily 2 m air temperature · regional context (°C)", weather.daily.map(row => [row.date, ...row.values]), ["Tmax", "Tmin", "Tmean"], state.date));
     }
     if (stage === 0 && state.data.point) {
@@ -234,8 +237,11 @@
         (snapshot.inCore ? "event-core snapshot" : "outside the event core") +
         " · " + percent(snapshot.summary.match) + " of estimated residents matched.", "data-note"));
     }
-    if (stage === 1) panel.append(R.element("p", snapshot?.census?.coverage > 0 ?
-      state.admin.census.source + " · " + percent(snapshot.census.coverage) + " of allocated census residents match this overpass." :
+    if (stage === 1) panel.append(R.element("p", state.admin.metroCensus && snapshot?.surfacePacked ?
+      state.admin.metroCensus.source + " · census units cover " + percent(state.admin.metroCensus.coverage) +
+      " of estimated residents before Landsat screening." : snapshot?.census?.coverage > 0 ?
+      [state.admin.census.area && state.admin.census.area + " census coverage", state.admin.census.source,
+        percent(snapshot.census.coverage) + " of allocated residents match this overpass."].filter(Boolean).join(" · ") :
       snapshot ? "The overpass has no valid match for the available census groups." : "No Landsat overpass available for this case.", "data-note"));
     return panel;
   }
@@ -250,7 +256,8 @@
     source.target = "_blank";
     source.rel = "noopener noreferrer";
     const label = R.element("p", null, "data-note");
-    label.append(source, document.createTextNode(" · " + rows.length + " valid readings · UTC"));
+    label.append(source, document.createTextNode((station.reference ? " · reference station outside the study area" : "") +
+      " · " + rows.length + " valid readings · UTC"));
     panel.append(label);
     if (rows.length) panel.append(chart(station.name + " · air temperature (°C)", rows.map(row => row.slice(0, 2)), [station.name], undefined, false));
     return panel;
@@ -269,7 +276,8 @@
     ]));
     if (e.surface) nodes.push(R.table("Residential surface heat · Landsat", [
       ["Population-weighted LST", degrees(e.surface.mean)],
-      ["Landsat overpass", e.timeUtc.slice(0, 16).replace("T", " ") + " UTC"],
+      ["Landsat overpass", e.timeUtc.slice(0, 16).replace("T", " ") +
+        (e.timeEnd?.slice(11, 16) && e.timeEnd.slice(11, 16) !== e.timeUtc.slice(11, 16) ? "–" + e.timeEnd.slice(11, 16) : "") + " UTC"],
       ["Snapshot scope", e.inCore ? "Event core" : "Outside event core"],
       ["Matched GHS-POP 2020", R.format(e.surface.matched, 0) + " · " + percent(e.surface.match)],
       ["Share of matched residents at ≥45°C LST", percent(e.surface.above)],

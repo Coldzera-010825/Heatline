@@ -5,6 +5,7 @@ import { matchesSnapshot, requestTime, viewIntent } from "./request-time.mjs";
 import { analyzePopulation } from "./london-population.mjs";
 import { matchedPoints, residentialTiles } from "./residential-map.mjs";
 import { analyzeCityStreet } from "./city-street.mjs";
+import { modelFootprint } from "./study-boundary.mjs";
 
 const missing = {
   station: ["quality-screened NOAA ISD hourly station observations for this event"],
@@ -23,10 +24,13 @@ const unavailable = (data, kind, extra = "") => ({
 const complete = (data, kind, reply, event) => ({
   ok: true, status: "complete", reply, event: { kind, city: data.cityName, eventId: data.event, ...event },
 });
-const dateLabel = time => time.slice(0, 10) + " " + time.slice(11, 16) + " UTC";
+const dateLabel = time => time.length === 10 ? time + " UTC" : time.slice(0, 10) + " " + time.slice(11, 16) + " UTC";
 const valueLabel = n => Number.isFinite(n) ? n.toFixed(2) + "°C" : "no matched data";
 const inside = (lon, lat, bounds) => !bounds || lon >= bounds[0] && lat >= bounds[1] && lon <= bounds[2] && lat <= bounds[3];
 const share = x => (Math.min(1, x) * 100).toFixed(1) + "%";
+const canonical = region => region === "DeBilt" ? "Utrecht" : region;
+const snapshots = event => [event.snapshot, event.coreSnapshot].filter(Boolean);
+const snapshotTimes = snapshot => snapshot.times?.length ? snapshot.times : [snapshot.datetime];
 
 const streetFeatures = (rows, city) => ({ type: "FeatureCollection", features: rows.map(([lon, lat, value, path_m, ring]) => ({
   type: "Feature", geometry: { type: "Polygon", coordinates: [ring] }, properties: { lon, lat, value, utci: value, path_m, city },
@@ -34,6 +38,7 @@ const streetFeatures = (rows, city) => ({ type: "FeatureCollection", features: r
 
 export async function compareStreet({ regions, event, date, time }, progress, readAdmin) {
   const catalog = await readAdmin("catalog.json");
+  if (Array.isArray(regions)) regions = regions.map(canonical);
   if (typeof event !== "string" || !Array.isArray(regions) || regions.length !== 2 || regions[0] === regions[1] ||
       regions.some(city => typeof city !== "string" || !Object.hasOwn(catalog.cities, city))) {
     return problem("clarify", "Choose two different archived cities.");
@@ -50,11 +55,13 @@ export async function compareStreet({ regions, event, date, time }, progress, re
   progress("Calculating and comparing walking-length-weighted UTCI…");
   const cities = cases.map((pilot, i) => {
     const name = catalog.cities[regions[i]].name;
-    const { rows } = evaluateStreetGrid(grids[i], pilot.weather);
+    const { rows } = evaluateStreetGrid(grids[i], pilot.weather, modelFootprint(pilot));
     const summary = summarize(rows, pilot.bounds);
+    if (!summary) return null;
     return { name, label: pilot.label, cellCount: summary.cellCount, meanUtci: summary.meanUtci, pathLengthM: summary.pathLengthM,
       strongHeat: summary.strongHeat, distribution: summary.distribution, features: streetFeatures(rows, name) };
   });
+  if (cities.some(city => !city)) return problem("empty", "One pilot has no modelled walking routes inside the study boundary.");
   return { ok: true, status: "complete", event: { kind: "street-comparison", timeUtc: cases[0].timeUtc, cities },
     reply: dateLabel(cases[0].timeUtc) + " · " + cities.map(city => city.name + " " + valueLabel(city.meanUtci)).join(" and ") +
       " walking-length-weighted UTCI in the two modelled pilots." };
@@ -62,7 +69,7 @@ export async function compareStreet({ regions, event, date, time }, progress, re
 
 export async function loadArchive(selection, read) {
   const catalog = await read("catalog.json", "json");
-  const city = catalog.cities.find(item => item.id === selection?.region);
+  const city = catalog.cities.find(item => item.id === canonical(selection?.region));
   const record = city?.cases.find(item => item.id === selection?.event);
   if (!record) return null;
   return read(record.file, "packed-json");
@@ -88,39 +95,105 @@ function populationSummary(points, temps, bounds, { threshold, bins }) {
     histogram: matched ? lengths.map(n => n / matched) : [] };
 }
 
-function compareResidents(city, snapshot, points, temperatures, census, bounds, body, bins) {
+function packedPopulation(populationBuffer, temperatureBuffer, bounds, center, { threshold, bins }) {
+  const size = temperatureBuffer.byteLength / 2;
+  if (populationBuffer.byteLength !== size * 12) throw new Error("Population and surface grids differ");
+  const longitude = new Int32Array(populationBuffer, 0, size);
+  const latitude = new Int32Array(populationBuffer, size * 4, size);
+  const weights = new Float32Array(populationBuffer, size * 8, size);
+  const temperatures = new Int16Array(temperatureBuffer);
+  const lengths = new Float64Array(bins.length + 1);
+  const dy = 500 / 111195, dx = dy / Math.cos(center[1] * Math.PI / 180);
+  const baseX = Math.floor(center[0] / dx), baseY = Math.floor(center[1] / dy);
+  const tiles = new Map();
+  let population = 0, matched = 0, total = 0, above = 0;
+  for (let i = 0; i < size; i++) {
+    const lon = longitude[i] / 1e7, lat = latitude[i] / 1e7;
+    if (!inside(lon, lat, bounds)) continue;
+    const residents = weights[i];
+    population += residents;
+    if (temperatures[i] === -32768) continue;
+    const t = temperatures[i] / 100;
+    matched += residents;
+    total += t * residents;
+    if (t >= threshold) above += residents;
+    let bin = 0;
+    while (bin < bins.length && t >= bins[bin]) bin++;
+    lengths[bin] += residents;
+    const col = Math.floor(lon / dx) - baseX, row = Math.floor(lat / dy) - baseY;
+    const key = row * 65536 + col;
+    let tile = tiles.get(key);
+    if (!tile) {
+      tile = [col, row, 0, 0];
+      tiles.set(key, tile);
+    }
+    tile[2] += t * residents;
+    tile[3] += residents;
+  }
+  return {
+    surface: { population: Math.round(population), matched: Math.round(matched), match: population ? matched / population : 0,
+      mean: matched ? total / matched : null, above: matched ? above / matched : null,
+      histogram: matched ? Array.from(lengths, n => n / matched) : [] },
+    map: { origin: [baseX, baseY], step: [dx, dy], rows: Array.from(tiles.values(), ([col, row, heat, pop]) =>
+      [col, row, Math.round(heat / pop * 100) / 100, Math.round(pop * 100) / 100]) },
+  };
+}
+
+function compactCensusMap(tiles, center, metres) {
+  const dy = metres / 111195, dx = dy / Math.cos(center[1] * Math.PI / 180);
+  const origin = [Math.floor(center[0] / dx), Math.floor(center[1] / dy)];
+  return {
+    origin, step: [dx, dy], metres,
+    rows: tiles.map(([lon, lat, , , heat, pop, groups]) => [
+      Math.round(lon / dx) - origin[0], Math.round(lat / dy) - origin[1], heat, pop, groups,
+    ]),
+  };
+}
+
+function compareResidents(city, snapshot, rows, bounds, body, bins) {
   const labels = city.census.groups;
   const group = body.group ?? "older", reference = body.reference ?? (group === "all" ? "older" : "all");
   if (!Object.hasOwn(labels, group) || !Object.hasOwn(labels, reference) || group === reference) {
     return problem("clarify", "Choose two different supported groups: " + Object.values(labels).join("; ") + ".");
   }
-  const rows = [...matchedPoints(points, temperatures, bounds, census, city.census.keys)];
   const totals = Object.fromEntries(Object.keys(labels).map(key => [key, { count: 0, matched: 0, heat: 0, bins: Array(bins.length + 1).fill(0) }]));
+  const groupTotals = Object.entries(totals);
   const byDistrict = new Map();
-  let matched = 0;
-  for (const [, , temperature, weights, , district] of rows) {
-    if (Number.isFinite(temperature)) matched++;
-    const i = bins.findIndex(edge => temperature < edge);
-    for (const [key, total] of Object.entries(totals)) {
-      const n = weights[key];
-      if (!Number.isFinite(n)) continue;
-      total.count += n;
-      if (!Number.isFinite(temperature)) continue;
-      total.matched += n;
-      total.heat += temperature * n;
-      total.bins[i === -1 ? bins.length : i] += n;
-    }
-    if (body.rank && district && Number.isFinite(weights[group])) {
-      const total = byDistrict.get(district) ?? { count: 0, matched: 0, heat: 0 };
-      const n = weights[group];
-      total.count += n;
-      if (Number.isFinite(temperature)) {
+  let matched = 0, rowCount = 0;
+  const counted = function* () {
+    for (const row of rows) {
+    const [, , temperature, weights, , district] = row;
+    rowCount++;
+      const valid = Number.isFinite(temperature);
+      if (valid) matched++;
+      let bin = 0;
+      while (bin < bins.length && temperature >= bins[bin]) bin++;
+      for (const [key, total] of groupTotals) {
+        const n = weights[key];
+        if (!Number.isFinite(n)) continue;
+        total.count += n;
+        if (!valid) continue;
         total.matched += n;
         total.heat += temperature * n;
+        total.bins[bin] += n;
       }
-      byDistrict.set(district, total);
+      if (body.rank && district && Number.isFinite(weights[group])) {
+        const total = byDistrict.get(district) ?? { count: 0, matched: 0, heat: 0 };
+        const n = weights[group];
+        total.count += n;
+        if (valid) {
+          total.matched += n;
+          total.heat += temperature * n;
+        }
+        byDistrict.set(district, total);
+      }
+      yield row;
     }
-  }
+  };
+  // Larger selections use a compact overview; the group estimates keep their 100 m weights.
+  const span = bounds ?? city.bbox;
+  const metres = body.mapFormat === "compact" && (span[2] - span[0]) * (span[3] - span[1]) > 1 ? 1000 : 500;
+  const metricTiles = residentialTiles(counted(), city.center[1], metres);
   if (!matched) return problem("empty", "This area has no Census population cells matched to clear Landsat values.");
   const format = n => Number(n.toFixed(2));
   const groups = Object.fromEntries(Object.entries(totals).map(([key, t]) => [key, {
@@ -129,7 +202,7 @@ function compareResidents(city, snapshot, points, temperatures, census, bounds, 
   }]));
   const a = totals[group], b = totals[reference], compared = a.matched && b.matched;
   const delta = compared ? format(a.heat / a.matched - b.heat / b.matched) : null;
-  const place = bounds ? "the selected area" : city.adminName;
+  const place = bounds ? "the selected part of " + (city.census.area ?? city.adminName) : city.census.area ?? city.adminName;
   const bandLabels = ["<" + bins[0], ...bins.slice(1).map((end, i) => bins[i] + "–" + end), "≥" + bins.at(-1)];
   const ranked = body.rank ? [...byDistrict].filter(([, total]) => total.matched > 0)
     .map(([code, total]) => ({
@@ -145,17 +218,45 @@ function compareResidents(city, snapshot, points, temperatures, census, bounds, 
       ". First minus second: " + valueLabel(delta) + "." : "At least one selected group has no matched residents in this area.",
     event: {
       kind: "population", place, timeUtc: snapshot.datetime, inCore: snapshot.inCore, censusYear: city.census.year,
-      censusSource: city.census.source, areaUnit: "allocated population cells", areas: rows.length, matched, groups, group, reference, delta,
+      censusSource: city.census.source, areaUnit: "allocated population cells", areas: rowCount, matched, groups, group, reference, delta,
       ranked, rankOrder: body.rankOrder,
       mapLayers: [["residents", "Surface LST"], ...Object.keys(labels).filter(key => key !== "all").map(key => [
         key, ({ older: "65+ share", limited: "Disability share", poverty: "Poverty share" })[key] ?? labels[key],
       ])],
       distribution: bandLabels.map((label, i) => ({ label, ...Object.fromEntries(Object.entries(totals).map(([key, t]) =>
         [key, t.matched ? t.bins[i] / t.matched : null])) })),
-      metricTiles: residentialTiles(rows, city.center[1]),
+      ...(body.mapFormat === "compact" ? { packedMap: compactCensusMap(metricTiles, city.center, metres) } : { metricTiles }),
       method: city.census.method + " " + city.census.source + ". Match allocated residents to QA-screened Landsat LST on the dated overpass.",
     },
   };
+}
+
+function* packedResidents(population, surface, index, census, bounds) {
+  const size = surface.byteLength / 2;
+  if (population.byteLength !== size * 12 || index.byteLength < size * 2 + 4) throw new Error("Census asset sizes differ");
+  const longitude = new Int32Array(population, 0, size);
+  const latitude = new Int32Array(population, size * 4, size);
+  const ghs = new Float32Array(population, size * 8, size);
+  const temperatures = new Int16Array(surface);
+  const units = new Uint16Array(index, 0, size);
+  // Read unaligned rows when the 16-bit index has an odd cell count.
+  const counts = new DataView(index, size * 2);
+  const stride = (census.keys.length + 1) * 4;
+  for (let i = 0; i < size; i++) {
+    const unit = units[i];
+    const lon = longitude[i] / 1e7, lat = latitude[i] / 1e7;
+    if (unit === 65535 || !inside(lon, lat, bounds)) continue;
+    const offset = unit * stride;
+    const ratio = ghs[i] / counts.getFloat32(offset + stride - 4, true);
+    const weights = {};
+    const denominators = {};
+    for (const [j, key] of census.keys.entries()) {
+      const count = counts.getFloat32(offset + j * 4, true) * ratio;
+      if (key.endsWith("Universe")) denominators[key.slice(0, -8)] = count;
+      else weights[key] = count;
+    }
+    yield [lon, lat, temperatures[i] === -32768 ? null : temperatures[i] / 100, weights, denominators, census.codes[unit]];
+  }
 }
 
 export async function analyzeArchive(body, progress, read, readAdmin) {
@@ -173,8 +274,10 @@ export async function analyzeArchive(body, progress, read, readAdmin) {
     case "exposure":
     case "shade": {
       const cityModel = catalog.cityStreetModels?.[data.region]?.[data.event];
+      if (body.coverage === "city" && cityModel?.scope !== "city") return problem("unavailable",
+        "Full study-area UTCI needs event-hour weather and a continuous SOLWEIG terrain, canopy and walking-network simulation. " +
+        (cityModel ? "The available model is " + cityModel.label + "." : "Use the outlined model coverage if available."));
       if (cityModel && body.coverage !== "pilot") return analyzeCityStreet(body, cityModel, city, progress, readAdmin);
-      if (body.coverage === "city") return problem("unavailable", "Full city radiation inputs are unavailable for this event. Use the outlined model coverage.");
       const models = catalog.streetModels?.[data.region];
       const pilot = models?.[data.event];
       if (!pilot) return unavailable(data, kind, Object.keys(models ?? {}).length ?
@@ -184,10 +287,11 @@ export async function analyzeArchive(body, progress, read, readAdmin) {
       progress("Loading " + pilot.label + " · " + dateLabel(pilot.timeUtc) + "…");
       const samples = await readAdmin(pilot.file, "packed-json");
       progress("Computing UTCI from modelled radiation and event-hour weather…");
-      const grid = evaluateStreetGrid(samples, pilot.weather, (lon, lat) => inside(lon, lat, selection));
+      const footprint = modelFootprint(pilot);
+      const grid = evaluateStreetGrid(samples, pilot.weather, (lon, lat) => inside(lon, lat, selection) && footprint(lon, lat));
       if (kind === "shade") return analyzeShade({ bounds: selection, shadePercent: body.shadePercent ?? 25,
         timeUtc: pilot.timeUtc, place: pilot.label, source: pilot.source,
-        coverage: { cells: grid.rows.length, pathM: grid.rows.reduce((sum, row) => sum + row[3], 0), city: false },
+        coverage: { cells: grid.rows.length, pathM: grid.rows.reduce((sum, row) => sum + row[3], 0), city: false, scope: "pilot" },
       }, progress, () => grid.pairs);
       progress("Weighting pedestrian UTCI by walking length in the selection…");
       const summary = summarize(grid.rows, selection);
@@ -232,44 +336,71 @@ export async function analyzeArchive(body, progress, read, readAdmin) {
         point ? "On " + date + " UTC, the reference grid point had a daily maximum of " + valueLabel(point.tmax) +
         ". No matched citywide weather estimate is available for this day." : "No matched regional weather cells inside the boundary on " + date + ".";
       return complete(data, "archive-weather", reply, { date, air: day, source: model?.source, point, summary: data.point?.summary,
-        method: "Regional air-temperature context weights valid model cells by GHS-POP 2020 centres within the administrative boundary. Climate normals and P90 refer to the single archived reference grid point." });
+        method: "Regional air-temperature context weights valid model cells by GHS-POP 2020 centres within the published study boundary. Climate normals and P90 refer to the single archived reference grid point." });
     }
     case "population":
     case "groups": {
-      const snapshot = event.snapshot;
-      if (!snapshot) return unavailable(data, "population");
-      if (!matchesSnapshot(snapshot.datetime, body.date, body.time)) {
-        return problem("unavailable", "The archived Landsat overpass is " + dateLabel(snapshot.datetime) + ". There is no matched residential LST at the requested time.");
+      if (!event.snapshot) return unavailable(data, "population");
+      const snapshot = snapshots(event).find(item => snapshotTimes(item).some(instant => matchesSnapshot(instant, body.date, body.time)));
+      if (!snapshot) {
+        return problem("unavailable", "Available Landsat overpasses: " + snapshots(event).map(item => dateLabel(item.datetime)).join(" and ") +
+          ". There is no matched residential LST at the requested time.");
       }
       if (kind === "groups") {
-        if (!city.census || !snapshot.census) return unavailable(data, "groups");
+        const metro = city.metroCensus && snapshot.surfacePacked;
+        if (!metro && (!city.census || !snapshot.census)) return unavailable(data, "groups");
         if (data.region === "London" && snapshot.census.file) {
           const result = await analyzePopulation({ ...body, timeUtc: snapshot.datetime }, progress, () => readAdmin(snapshot.census.file, "packed-json"));
           if (result.ok) result.event.inCore = snapshot.inCore;
           return result;
         }
-        if (!city.census.file) return unavailable(data, "groups");
-        if (body.rank && (!city.census.districts || bounds) || body.borough) {
-          return problem("clarify", city.census.districts ? "Choose the full city to rank districts." :
+        const censusConfig = metro ? city.metroCensus : city.census;
+        if (!censusConfig.file) return unavailable(data, "groups");
+        const hasDistricts = Object.keys(censusConfig.districts ?? {}).length > 0;
+        if (body.rank && (!hasDistricts || bounds) || body.borough) {
+          return problem("clarify", hasDistricts ? "Choose the full study area to rank districts." :
             "District group rankings are unavailable for this city. Compare groups for the city or a drawn area.");
         }
         progress("Applying census group counts to the matched residential grid…");
-        const [points, temperatures, census] = await Promise.all([readAdmin(city.population, "packed-json"),
-          readAdmin(snapshot.surface, "packed-json"), readAdmin(city.census.file, "packed-json")]);
-        return compareResidents(city, snapshot, points, temperatures, census, bounds, body, catalog.comparison.bins);
+        if (metro) {
+          const [points, temperatures, index] = await Promise.all([readAdmin(city.populationPacked, "packed-index"),
+            readAdmin(snapshot.surfacePacked, "packed-index"), readAdmin(censusConfig.file, "packed-index")]);
+          return compareResidents({ ...city, census: censusConfig }, snapshot, packedResidents(points, temperatures, index, censusConfig, bounds),
+            bounds, body, catalog.comparison.bins);
+        }
+        const [points, temperatures, census] = await Promise.all([readAdmin(city.census.population ?? city.population, "packed-json"),
+          readAdmin(snapshot.census.surface ?? snapshot.surface, "packed-json"), readAdmin(snapshot.census.file ?? city.census.file, "packed-json")]);
+        return compareResidents(city, snapshot, matchedPoints(points, temperatures, bounds, census, city.census.keys), bounds, body, catalog.comparison.bins);
       }
-      progress("Matching GHS-POP 100 m residential cells to clear Landsat pixels…");
-      const [points, temps] = await Promise.all([readAdmin(city.population, "packed-json"), readAdmin(snapshot.surface, "packed-json")]);
-      if (temps.length !== points.length) throw new Error("Population and surface arrays differ");
-      progress("Calculating the population-weighted surface heat and distribution…");
-      const surface = populationSummary(points, temps, bounds, catalog.comparison);
-      if (!Number.isFinite(surface.mean)) return problem("empty", "No residential cells in this area match valid Landsat temperatures. Try the full administrative area or a different event.");
+      let surface, packedMap, metricTiles;
+      if (snapshot.surfacePacked) {
+        progress("Reading 100 m resident counts and matched Landsat temperatures…");
+        const [population, temperatures] = await Promise.all([readAdmin(city.populationPacked, "packed-index"),
+          readAdmin(snapshot.surfacePacked, "packed-index")]);
+        progress("Calculating the population-weighted surface heat and distribution…");
+        ({ surface, map: packedMap } = packedPopulation(population, temperatures, bounds, city.center, catalog.comparison));
+      } else if (snapshot.surface) {
+        progress("Matching GHS-POP 100 m residential cells to clear Landsat pixels…");
+        const [points, temps] = await Promise.all([readAdmin(city.population, "packed-json"), readAdmin(snapshot.surface, "packed-json")]);
+        if (temps.length !== points.length) throw new Error("Population and surface arrays differ");
+        progress("Calculating the population-weighted surface heat and distribution…");
+        surface = populationSummary(points, temps, bounds, catalog.comparison);
+        metricTiles = residentialTiles(matchedPoints(points, temps, bounds), city.center[1]);
+      } else {
+        if (bounds) return problem("unavailable", "This snapshot needs the FUA 100 m population and Landsat inputs to recalculate a drawn area. Choose the full area to inspect the supplied statistic.");
+        progress("Reading the supplied full-area GHS-POP and Landsat statistic…");
+        surface = snapshot.summary;
+      }
+      if (!Number.isFinite(surface.mean)) return problem("empty", "No residential cells in this area match valid Landsat temperatures. Try the full study area or a different event.");
+      const native = snapshot.surfacePacked || snapshot.surface;
       return complete(data, "archive-population", (bounds ? "In the drawn part of " : "In ") + city.adminName + ", the " +
         dateLabel(snapshot.datetime) + " Landsat snapshot averaged " + valueLabel(surface.mean) + " across matched residents (" + share(surface.match) +
         " of the estimated residential population)." + (snapshot.inCore ? "" : " This snapshot falls outside the heatwave core."), {
-        surface, bins: catalog.comparison.bins, timeUtc: snapshot.datetime, inCore: snapshot.inCore, bounds, place: city.adminName,
-        metricTiles: residentialTiles(matchedPoints(points, temps, bounds), city.center[1]),
-        method: "Sample quality-screened Landsat LST at the centres of native 100 m GHS-POP 2020 cells inside the boundary and any drawn selection. Divide the sum of LST × estimated residents by matched residents. Coverage includes all resident estimates in the denominator. The estimate describes surface heat near homes, not air temperature, actual activity or health outcomes.",
+        surface, bins: catalog.comparison.bins, timeUtc: snapshot.datetime, timeEnd: snapshot.timeEnd,
+        inCore: snapshot.inCore, bounds, place: city.adminName, packedMap, metricTiles, nativeStatus: snapshot.nativeStatus,
+        method: (native ? "Sample quality-screened Landsat LST at the centres of native 100 m GHS-POP 2020 cells inside the boundary and any drawn selection. Divide the sum of LST × estimated residents by matched residents. " :
+          "Supplied FUA v3 statistic for the full study area, calculated from the matched 100 m population and surface rasters. ") +
+          "Coverage includes all resident estimates in the denominator. The estimate describes surface heat near homes.",
       });
     }
     default: return problem("clarify", "Choose weather, station observations, population, pedestrian heat or shade.");
@@ -288,10 +419,11 @@ export async function archiveChat(body, progress, read, run, normalChat) {
   }
   const { cities } = await read("catalog.json", "json");
   const names = { London: "伦敦", Paris: "巴黎", Brussels_Uccle: "布鲁塞尔", Amsterdam: "阿姆斯特丹",
-    Lille: "里尔", DeBilt: "德比尔特", Portland: "波特兰", Seattle: "西雅图" };
+    Lille: "里尔", Utrecht: "乌得勒支", Portland: "波特兰", Seattle: "西雅图" };
   const mentions = cities.filter(city => query.includes(city.name.toLowerCase()) ||
     query.includes(city.id.toLowerCase()) || query.includes(names[city.id]) ||
-    city.id === "Brussels_Uccle" && /\b(?:brussels|uccle)\b/.test(query));
+    city.id === "Brussels_Uccle" && /\b(?:brussels|uccle)\b/.test(query) ||
+    city.id === "Utrecht" && /\bde\s*bilt\b|德比尔特/.test(query));
   if ((mentions.length >= 2 && /\b(?:compar\w*|versus|vs)\b|比较|对比/.test(query)) ||
       /\b(?:compare events|compare cities|compare regions|regional comparison|global city comparison)\b|跨城比较/.test(query) ||
       /\b(?:global view|globe|global (?:heat|map)|global era5)\b|全球视图|回到地球/.test(query)) {
@@ -370,12 +502,20 @@ export async function archiveChat(body, progress, read, run, normalChat) {
   }
   if (!kind && show && alias) {
     const satellite = ["lst_c", "ndvi", "ndwi", "mndwi"].includes(alias);
-    if ((explicitDate || time) && satellite && (!data.satellite || !matchesSnapshot(data.satellite.datetime, explicitDate, time))) {
-      return { ...problem("unavailable", "This case has no " + alias + " snapshot at the requested time." +
-        (data.satellite ? " The archived Landsat overpass is " + dateLabel(data.satellite.datetime) + "." : "")), provider: "local" };
+    let layer = alias;
+    if (satellite && (explicitDate || time)) {
+      const available = data.snapshotTimes ?? (data.satellite?.datetime ? { lst_c: [data.satellite.datetime] } : {});
+      const match = Object.entries(available).find(([key, times]) => (key === "lst_c" || alias === "lst_c") &&
+        times.some(instant => matchesSnapshot(instant, explicitDate, time)));
+      if (!match) {
+        const times = Object.values(available).map(instants => dateLabel(instants[0]));
+        return { ...problem("unavailable", "This case has no " + alias + " snapshot at the requested time." +
+          (times.length ? " Available Landsat overpasses: " + times.join(" and ") + "." : "")), provider: "local" };
+      }
+      if (alias === "lst_c") layer = match[0];
     }
     if (time && !satellite) return { ...problem("clarify", "This map layer is static or uses daily values. Choose a UTC day rather than an hour."), provider: "local" };
-    return dispatch("archive-layer", { layer: alias, date: ["air-max", "noaa"].includes(alias) ? explicitDate : undefined });
+    return dispatch("archive-layer", { layer, date: ["air-max", "noaa"].includes(alias) ? explicitDate : undefined });
   }
   if (!kind && (/\b(?:utci|pedestrian heat|walking heat|thermal stress)\b|行人热|街道热|步行热/.test(query) ||
     body.chapter === 3 && /\b(?:heat|exposure|hotspots?)\b|暴露|热点/.test(query))) kind = "exposure";
@@ -397,7 +537,7 @@ export async function archiveChat(body, progress, read, run, normalChat) {
     model: body.model, station: body.station, comparison: body.comparison, shadePercent,
     compare: kind === "station" && compare, stationPeriod: kind === "station" && explicitDate ? "day" : body.stationPeriod,
     scope: areaKind && (full || rank) ? "full" : undefined, bounds: areaKind && !full && !rank ? body.bounds : undefined,
-    ...(["shade", "exposure"].includes(kind) && /\b(?:whole (?:city|municipality)|citywide|entire city|full city|administrative area)\b|全市|全城|全域/.test(query)
+    ...(["shade", "exposure"].includes(kind) && /\b(?:whole city|citywide|entire city|full city|administrative area|functional urban area|full fua)\b|全市|全城|全域|大都市区/.test(query)
       ? { coverage: "city" } : {}),
     ...(kind === "groups" ? { group: namedGroups[0] ?? body.group, reference: namedGroups[1] ??
       (namedGroups[0] === "all" ? "older" : namedGroups.length ? "all" : body.reference), rank,

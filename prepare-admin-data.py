@@ -325,13 +325,22 @@ def main():
     models = {}
     for path in sorted(OUT.glob("*/*/street.json")):
         city, event, _ = path.relative_to(OUT).parts
+        if city == "DeBilt" and "Utrecht" in cities:
+            city = "Utrecht"
         metadata = read(path)
         if "weather" not in metadata:
             continue
         core = cities[city]["events"][event]["core"]
         if not core or not core[0] <= metadata["timeUtc"][:10] <= core[1]:
             raise ValueError(f"Street pilot falls outside the event core: {city}/{event}")
+        if args.street_index_only and retained.get("boundaryVersion"):
+            # Preserve the transformed model footprint and published coverage metadata.
+            saved = retained.setdefault("streetModels", {}).get(city, {}).get(event)
+            if not saved:
+                raise ValueError(f"Rebuild the FUA catalog to bind the new pilot {city}/{event}")
+            metadata = {**metadata, **{key: saved[key] for key in ("city", "geometry", "bounds", "label", "boundaryClipped") if key in saved}}
         models.setdefault(city, {})[event] = metadata
+    retained.pop("streetModels", None)
     save("catalog.json", {"cities": cities, "streetModels": models, "comparison": {"minimumMatch": .80, "maxSolarMinutes": 90,
          "threshold": THRESHOLD, "bins": BINS}, "sources": {
          "population": "https://human-settlement.emergency.copernicus.eu/ghs_pop2023.php",

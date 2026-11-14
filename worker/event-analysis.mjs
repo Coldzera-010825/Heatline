@@ -124,7 +124,7 @@ async function analyzeShade({ bounds, shadePercent, timeUtc = snapshot, place = 
   const records = await readEvent("shade-pairs.json");
   const rows = records.filter(([lon, lat]) => inside(lon, lat, bounds));
   if (!rows.length) return problem("empty", "No eligible 100 m cells here have at least 20 m each of sunlit and building-shaded paths. " +
-    (coverage?.city ? "Try a different area or view baseline UTCI in At street level." : "Pairing is available only in " + place + "."));
+    (Number.isFinite(networkHeat) ? "Try a different area or view baseline UTCI in At street level." : "Pairing is available only in " + place + "."));
   progress("Calculating length-weighted baseline and shade scenario UTCI…");
   let total = 0;
   let sunTotal = 0;
@@ -166,7 +166,7 @@ async function analyzeShade({ bounds, shadePercent, timeUtc = snapshot, place = 
   const before = round(baseline / total);
   const after = round(scenario / total);
   const reduction = round((baseline - scenario) / total);
-  const selection = coverage?.city && Number.isFinite(networkHeat) ? {
+  const selection = coverage?.pathM > 0 && Number.isFinite(networkHeat) ? {
     before: round(networkHeat / coverage.pathM),
     after: round((networkHeat - (baseline - scenario)) / coverage.pathM),
     reduction: round((baseline - scenario) / coverage.pathM),

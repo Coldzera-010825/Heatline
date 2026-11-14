@@ -116,10 +116,10 @@
       { value: row[index], count: row[4], temperature: row[2], meters: 500 })));
   }
 
-  function residentialResultGrid(rows, layer) {
+  function residentialResultGrid(rows, layer, metres = 500) {
     return collection(rows.flatMap(([w, s, dx, dy, temperature, count, groups]) => {
       const value = ["residents", "archive-population-map"].includes(layer) ? temperature : groups[layer];
-      return Number.isFinite(value) ? [cell(w, s, w + dx, s + dy, { value, count, temperature, meters: 500 })] : [];
+      return Number.isFinite(value) ? [cell(w, s, w + dx, s + dy, { value, count, temperature, meters: metres })] : [];
     }));
   }
 

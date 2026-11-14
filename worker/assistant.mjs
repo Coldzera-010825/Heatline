@@ -8,7 +8,7 @@ const scopes = ["selected", "london"];
 const eventIds = ["E1_2019-07", "E2_2020-08", "G1_2021-06", "E3_2022-07", "E4_2025-06", "E5_2026-06"];
 const regions = {
   London: /\blondon\b|伦敦/, Paris: /\bparis\b|巴黎/, Brussels_Uccle: /\b(?:brussels|uccle)\b|布鲁塞尔/,
-  Amsterdam: /\bamsterdam\b|阿姆斯特丹/, Lille: /\blille\b|里尔/, DeBilt: /\bde\s*bilt\b|德比尔特/,
+  Amsterdam: /\bamsterdam\b|阿姆斯特丹/, Lille: /\blille\b|里尔/, Utrecht: /\butrecht\b|\bde\s*bilt\b|乌得勒支|德比尔特/,
   Portland: /\bportland\b|波特兰/, Seattle: /\bseattle\b|西雅图/,
 };
 const availability = "Open one of the eight archived city cases. Compare cities uses population-weighted Landsat surface temperature. Pedestrian UTCI and shade require modelled coverage for the selected city and date.";
