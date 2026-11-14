@@ -16,7 +16,7 @@
     ["exposure", "Who was exposed?", "Did residential heat differ by group?", "Compare age, activity limitation and neighbourhood deprivation groups using the same London Landsat snapshot.",
       "Use the 5 × 5 Landsat LST pixel window around each 2021 Census Output Area’s geometric centroid. IMD 2025 describes neighbourhoods and is applied retrospectively to 18 July 2022.",
       ["Compare IMD deciles 1–2 and 9–10", "Which borough had the highest LST for residents aged 65+?"]],
-    ["street", "At street level", "Where was it hottest to walk?", "Draw an area or use the study area to calculate heat exposure along the walking network.",
+    ["street", "At street level", "Where was it hottest to walk?", "Explore the July 2022 heatwave. Draw an area or use the study area to calculate heat along the walking network.",
       "Calculate UTCI from SOLWEIG mean radiant temperature, air temperature, humidity and wind. Each result weights 100 m cells by represented walking-network length.",
       ["Calculate pedestrian heat in my selection", "Calculate UTCI for the London study area"]],
     ["shade", "What-if shade", "What if more streets had shade?", "Estimate the change in length-weighted UTCI if some sunlit walking routes had shade.",
@@ -24,7 +24,7 @@
       ["What if 25% of sunlit paths were shaded?", "Add shade to 50% of sunlit walking routes"]],
     ["compare", "Compare cities", "How did heat exposure differ?", "Compare residential surface heat or walking heat stress during the same historical event.",
       "Residential heat matches clear Landsat pixels to GHS-POP 2020 within the published study areas. A difference requires same-day, in-event overpasses within 90 minutes of local solar time and at least 80% population coverage in both areas. Walking heat compares same-time SOLWEIG pilots and weights 100 m cells by walking length.",
-      ["Compare Paris and Amsterdam in 2020", "Compare Portland and Seattle walking UTCI in 2021"]],
+      ["Compare Paris and Amsterdam in 2020", "Compare Paris and Amsterdam walking UTCI in 2022"]],
   ];
   const globalChapter = ["globe", "", "July heat around the world", "Replay daily maximum air temperature over land from 13 to 19 July 2022.",
     "The globe replays daily maximum air temperature on 13–19 July 2022 as regional context. City markers open their own historical event archives. Each layer and analysis shows its actual date.",
@@ -69,15 +69,16 @@
   const motionPreference = matchMedia("(prefers-reduced-motion: reduce)");
   const area = () => areas.get(stage);
   const usingArchive = () => Boolean(archiveState) && stage >= 0 && stage < 4;
+  const missingStreetCase = () => stage === 2 && Boolean(archiveState && !archiveState.record);
   const cityStreetModel = () => adminCatalog?.cityStreetModels?.[caseRegion]?.[caseEvent];
-  const displayedSnapshot = () => archiveState?.selected[1] === "lst_core_c" ? archiveState.event.coreSnapshot : archiveState?.event.snapshot;
+  const displayedSnapshot = () => archiveState?.selected?.[1] === "lst_core_c" ? archiveState.event.coreSnapshot : archiveState?.event?.snapshot;
   const census = () => {
     const city = adminCatalog?.cities[caseRegion];
     return usingArchive() && displayedSnapshot()?.surfacePacked ? city?.metroCensus ?? city?.census : city?.census;
   };
   const canCompareGroups = () => !usingArchive() || Boolean(displayedSnapshot()?.census?.coverage > 0 ||
     census()?.coverage > 0 && displayedSnapshot()?.surfacePacked);
-  const archiveLayer = () => archiveState?.layers.find(layer => layer.id === archiveState.selected[stage]);
+  const archiveLayer = () => archiveState?.layers?.find(layer => layer.id === archiveState.selected[stage]);
   const adminPath = file => "data/admin/" + file;
   const streetKeys = ["case-utci", "case-baseline", "case-scenario"];
   const clipFeature = (clip, feature) => {
@@ -98,10 +99,11 @@
       ["Who was exposed?", "Estimate residential surface heat inside " + city + ", or draw a smaller area to inspect its distribution.",
         "Match quality-screened Landsat to 100 m residential population cells. Census groups cover the reported local study area.",
         ["Calculate population exposure", "Compare residents aged 65+"]],
-      ["Where was it hottest to walk?", archiveState.street?.scope === "city" ? "Draw an area or use the study area to calculate heat along its walking network." :
-        "Draw an area within the model coverage to calculate heat along its walking network.",
+      ["Where was it hottest to walk?", missingStreetCase() ? archiveState.admin.name + " has no archived 2022 heatwave case for walking-network analysis." :
+        archiveState.street?.scope === "city" ? "Draw an area or use the study area to calculate heat along its walking network in July 2022." :
+        "Use the available July 2022 model coverage or draw an area inside it to calculate walking-network heat.",
         "SOLWEIG estimates radiation using terrain, buildings and canopy. UTCI adds air temperature, humidity and wind. We weight the 100 m cells by represented walking length.",
-        ["Calculate pedestrian UTCI", "How is UTCI calculated?"]],
+        [missingStreetCase() ? "What inputs are needed for 2022?" : "Calculate pedestrian UTCI", "How is UTCI calculated?"]],
       ["What if more streets had shade?", "Estimate how the UTCI along walking routes would change if some sunlit length had building shade.",
         "Keep the same event time and weather. Use only 100 m cells with at least 20 m of modelled walking length in both sun and building shade.",
         ["What if 25% of paths were shaded?", "How is the shade scenario calculated?"]],
@@ -413,10 +415,11 @@
     $("case-city-picker").hidden = $("case-city-separator").hidden = comparisonMode || stage < 0;
     $("case-period").textContent = stage < 0 ? (adminCatalog ? Object.keys(adminCatalog.cities).length + " cities · 2018–2026" : "City archive") :
       comparisonMode ? (regionalState?.event.label ?? "Historical events") :
-      archiveState ? archiveState.record.label.replace(" · reference point", "") : "July 2022";
+      stage === 2 ? missingStreetCase() ? "2022 · case pending" : "July 2022" :
+      archiveState?.record?.label.replace(" · reference point", "") ?? "July 2022";
     $("enter-label").textContent = "EXPLORE " + (adminCatalog?.cities[caseRegion]?.name ?? "London").toUpperCase();
     const city = caseCatalog?.cities.find(item => item.id === caseRegion);
-    const eventOptions = city?.cases.map(record => new Option(record.label, record.id)) ??
+    const eventOptions = stage === 2 ? [new Option($("case-period").textContent, detailedEvent)] : city?.cases.map(record => new Option(record.label, record.id)) ??
       (caseRegion === "London" ? [new Option("July 2022", detailedEvent)] : []);
     $("case-event").replaceChildren(...eventOptions);
     $("case-event").value = caseEvent;
@@ -474,7 +477,7 @@
         const city = catalog.cities.find(item => item.id === region);
         const chapterIndex = index < 0 ? 0 : index;
         if (city) {
-          const available = !event || isDetailed(region, event) || city.cases.some(record => record.id === event);
+          const available = chapterIndex === 2 || !event || isDetailed(region, event) || city.cases.some(record => record.id === event);
           const opened = await chooseCase(region, available ? event : undefined, chapterIndex, false);
           if (opened && !available) reportAnalysis("That event is unavailable for " + city.name + ". Showing its default case instead.");
         } else {
@@ -515,7 +518,9 @@
     region = normalizeRegion(region);
     const city = caseCatalog?.cities.find(item => item.id === region);
     if (!city && region !== "London") return false;
-    if (event && !isDetailed(region, event) && !city?.cases.some(record => record.id === event)) return false;
+    if (index === 2) event = detailedEvent;
+    const no2022Case = index === 2 && region !== "London" && !city.cases.some(item => item.id === detailedEvent);
+    if (!no2022Case && event && !isDetailed(region, event) && !city?.cases.some(record => record.id === event)) return false;
     const id = ++caseRequest;
     stopArchivePlayback();
     if (drawing) setDrawing(false);
@@ -525,17 +530,17 @@
       const requested = event ?? lastCase.get(region) ?? (region === "London" ? detailedEvent : null);
       const preferred = city?.cases.find(item => item.id === requested) ?? city?.cases.find(item => item.id === detailedEvent) ??
         city?.cases.find(item => !item.pointOnly);
-      const record = isDetailed(region, requested) ? undefined : preferred;
+      const record = no2022Case || isDetailed(region, requested) ? undefined : preferred;
       const admin = adminCatalog?.cities[region];
       const street = adminCatalog?.cityStreetModels?.[region]?.[record?.id] ?? adminCatalog?.streetModels?.[region]?.[record?.id];
-      const [data, boundary] = record ? await Promise.all([A.read(record.file), A.readAdmin(admin.boundary)]) : [];
+      const [data, boundary] = await Promise.all([record && A.read(record.file), (record || no2022Case) && A.readAdmin(admin.boundary)]);
       if (id !== caseRequest) return;
-      if (!data && region !== "London") throw new Error("Administrative area unavailable");
+      if (!data && !no2022Case && region !== "London") throw new Error("Administrative area unavailable");
       const nextEvent = record?.id ?? detailedEvent;
       const changed = caseRegion !== region || caseEvent !== nextEvent;
       caseRegion = region;
       caseEvent = nextEvent;
-      lastCase.set(region, nextEvent);
+      if (index !== 2) lastCase.set(region, nextEvent);
       if (changed) {
         results.clear();
         for (const [chapter, selected] of [[1, true], [2, false], [3, false]]) areas.set(chapter, { chosen: selected });
@@ -553,6 +558,10 @@
         registerArchiveLayers();
         map.getSource("archive-study-area").setData(L.collection([boundary]));
         map.getSource("street-model-area").setData(street ? L.collection([{ type: "Feature", geometry: street.geometry, properties: {} }]) : L.empty);
+      } else if (no2022Case) {
+        archiveState = { city, admin, boundary };
+        map.getSource("archive-study-area").setData(L.collection([boundary]));
+        map.getSource("street-model-area").setData(L.empty);
       } else if (!data) {
         archiveState = undefined;
         const coverage = adminCatalog?.cityStreetModels?.London?.[detailedEvent] ?? adminCatalog?.streetModels?.London?.[detailedEvent];
@@ -576,7 +585,7 @@
   }
 
   function updateArchiveControls() {
-    if (!usingArchive()) return;
+    if (!usingArchive() || stage >= 2) return;
     const state = archiveState, { data } = state;
     const layer = $("archive-layer");
     if (stage < 2) {
@@ -1067,6 +1076,7 @@
   async function refreshGrid() {
     if (!ready) return;
     if (stage < 0) return showGlobalDay();
+    if (missingStreetCase()) { updateVisibility(); return; }
     if (usingArchive() || detailedRaster()) {
       if (usingArchive()) registerArchiveLayers();
       return refreshArchiveGrid();
@@ -1486,13 +1496,16 @@
     clearGrid();
     node.textContent = metric === "street" ? "Checking for matched walking-network model times…" : "Loading residential surface-heat snapshots…";
     try {
-      const fallback = metric === "street" ? "E3_2022-07" : "E2_2020-08";
+      const fallback = metric === "street" ? detailedEvent : "E2_2020-08";
       const requested = options.event ?? (eventSelect.value || fallback);
-      const requestedEvent = Object.hasOwn(compareEvents, requested) ? requested : fallback;
+      const requestedEvent = metric === "street" ? detailedEvent : Object.hasOwn(compareEvents, requested) ? requested : fallback;
       const event = Object.hasOwn(compareEvents, requestedEvent) ? { id: requestedEvent, label: compareEvents[requestedEvent] } : null;
       if (!event) throw new Error("This event is not in the archive.");
-      const available = Object.entries(adminCatalog.cities).flatMap(([id, city]) => city.events[event.id] && !city.events[event.id].pointOnly ?
-        [{ id, ...city, snapshot: city.events[event.id].snapshot, pilot: adminCatalog.streetModels?.[id]?.[event.id] }] : []);
+      const available = Object.entries(adminCatalog.cities).flatMap(([id, city]) => {
+        const record = city.events[event.id];
+        if (metric === "surface" && (!record || record.pointOnly)) return [];
+        return [{ id, ...city, snapshot: record?.snapshot, pilot: adminCatalog.streetModels?.[id]?.[event.id] }];
+      });
       const a = available.find(region => region.id === normalizeRegion(options.firstRegion ?? (first.value || "Paris"))) ?? available[0];
       const b = available.find(region => region.id === normalizeRegion(options.secondRegion ?? (second.value || "Amsterdam")) && region !== a) ??
         available.find(region => region !== a);
@@ -1501,7 +1514,7 @@
       if (stage !== 4 || id !== regionalRequest) return;
       const candidates = [a, b].map(city => {
         const record = city.events[event.id];
-        const scenes = [record.snapshot, record.coreSnapshot].filter(Boolean);
+        const scenes = [record?.snapshot, record?.coreSnapshot].filter(Boolean);
         const dated = scenes.filter(snapshot => (!options.date || snapshot.datetime.slice(0, 10) === options.date) &&
           (!options.day || Number(snapshot.datetime.slice(8, 10)) === options.day) &&
           (!options.time || (snapshot.times ?? [snapshot.datetime]).some(time => time.slice(11).startsWith(options.time))));
@@ -1533,7 +1546,8 @@
       if (options.time && [x, y].some(snapshot => !snapshot || !(snapshot.times ?? [snapshot.datetime]).some(t => t.slice(11).startsWith(options.time)))) {
         reasons.push("The archive has no pair of overpasses at the requested UTC time.");
       }
-      eventSelect.replaceChildren(...Object.entries(compareEvents).map(([id, label]) => new Option(label, id)));
+      eventSelect.replaceChildren(...(metric === "street" ? [new Option(event.label, event.id)] :
+        Object.entries(compareEvents).map(([id, label]) => new Option(label, id))));
       eventSelect.value = event.id;
       for (const [control, value, other] of [[first, a.id, b.id], [second, b.id, a.id]]) {
         control.replaceChildren(...available.map(region => {
@@ -1629,10 +1643,11 @@
     const fullModel = model?.scope === "city";
     const archived = usingArchive() && (stage === 1 ? archiveState.event.snapshot : archiveState.street);
     const time = archived?.datetime ?? archived?.timeUtc;
-    $("area-name").textContent = place && !selection.bounds ? place : selection.bounds ? "Drawn area" : usingArchive() ?
+    $("area-name").textContent = missingStreetCase() ? archiveState.admin.adminName : place && !selection.bounds ? place : selection.bounds ? "Drawn area" : usingArchive() ?
       stage === 1 ? archiveState.admin.adminName : archiveState.street?.label ?? "Street model unavailable" : !selection.chosen ? "Select the analysis area" :
       stage === 3 && !fullModel ? "Central London paired pilot" : "Greater London";
     $("area-hint").textContent = drawing ? (corner ? "Click the opposite corner." : "Click one corner on the map.") :
+      missingStreetCase() ? "2022 event dates and model inputs needed" :
       usingArchive() ? time ? time.slice(0, 16).replace("T", " ") + " UTC" : stage === 1 ? "No valid residential Landsat snapshot" : "No model for this event" :
       stage === 1 ? "Landsat 9 · 18 July 2022 · 10:52 UTC" : "18 July 2022 · 10:52 UTC";
     $("draw-area").textContent = drawing ? "Cancel drawing" : "Draw area";
@@ -1732,8 +1747,9 @@
       "archive-station", "archive-station-other", "archive-period", "archive-weather", "archive-analyse-station",
       "archive-compare-stations", "archive-groups", "archive-play", "view-mode", "intro-compare"]) $(id).disabled = busy || !ready || caseLoading;
     $("case-city").disabled = busy || !ready || caseLoading || !caseCatalog || stage === 4;
-    $("case-event").disabled = busy || !ready || caseLoading || !caseCatalog;
+    $("case-event").disabled = busy || !ready || caseLoading || !caseCatalog || stage === 2;
     for (const id of ["regional-event", "regional-metric", "regional-first", "regional-second"]) $(id).disabled = busy || !ready || regionalLoading || !adminCatalog;
+    $("regional-event").disabled ||= $("regional-metric").value === "street";
     $("view-mode").querySelector('[value="comparison"]').disabled = !adminCatalog;
     $("run-analysis").disabled ||= drawing || (!area()?.chosen && !(usingArchive() && stage >= 2));
     $("clear-analysis").disabled ||= drawing;
@@ -1806,7 +1822,7 @@
       population: request.rank ? "district LST ranking" : "population comparison",
       exposure: "heat exposure analysis", shade: "shade scenario", groups: "resident group comparison", weather: "event weather analysis" })[kind];
     const stationName = id => stations.find(station => station.id === id)?.name;
-    const subject = request.archiveCase ? archiveState.city.name + " · " + archiveState.record.label :
+    const subject = request.archiveCase ? archiveState.city.name + " · " + (archiveState.record?.label ?? "2022") :
       kind === "station" ? [stationName(request.station), stationName(request.comparison)].filter(Boolean).join(" + ") :
       kind === "shade" ? request.shadePercent + "% sunlit route length" :
         kind === "population" ? populationGroups[request.group] : request.bounds ? "Drawn area" : "London study area";
@@ -1909,7 +1925,7 @@
     $("panel-switch").hidden = stage < 0;
     $("chapter-nav").hidden = stage < 0 || stage === 4;
     updateCaseHeader();
-    $("case-event-controls").hidden = stage < 0 || stage === 4;
+    $("case-event-controls").hidden = stage < 0 || stage === 2 || stage === 4;
     $("archive-workspace").hidden = !usingArchive() || stage >= 2;
     $("weather-reference").hidden = stage !== 0 || usingArchive();
     $("station-analysis").hidden = key !== "wow";
@@ -1932,7 +1948,7 @@
     $("actions").replaceChildren();
     if (stage === 0 && !usingArchive()) showWeatherReference();
     if (usingArchive()) updateArchiveControls();
-    if (usingArchive() && stage >= 2 && !archiveState.street && archiveState.otherStreet) {
+    if (usingArchive() && stage === 3 && !archiveState.street && archiveState.otherStreet) {
       const [event] = Object.keys(adminCatalog.streetModels[caseRegion]);
       const record = archiveState.city.cases.find(item => item.id === event);
       $("actions").append(R.button("Open " + record.label + " street model ↗", () => {
@@ -1957,6 +1973,8 @@
 
   function openChapter(index, animate = true, regionalOptions, forceFrame = false) {
     if (!ready || index < -1 || index >= chapters.length) return;
+    if (index === 2 && caseEvent !== detailedEvent) return chooseCase(caseRegion, detailedEvent, index, animate);
+    if ([0, 1, 3].includes(index) && archiveState && !archiveState.record) return chooseCase(caseRegion, undefined, index, animate);
     const previous = stage;
     if (previous === 4 && index !== 4) {
       regionalRequest++;
@@ -2067,7 +2085,9 @@
     if (!archiveState || index === undefined) return;
     const explain = message => chatTurn ? writeReply(chatTurn, message) : reportAnalysis(message);
     const drawn = options.scope === "full" || options.rank ? undefined : options.bounds ?? area()?.bounds ?? areas.get(index)?.bounds;
-    if (stage !== index) openChapter(index);
+    if (stage !== index) await openChapter(index);
+    if (stage !== index) return explain("Could not open the analysis chapter. Try again.");
+    if (!archiveState) return perform(kind, { ...options, bounds: drawn, scope: drawn ? "selected" : "london" }, chatTurn);
     const weatherAction = index === 0;
     if (weatherAction && options.date && options.date !== archiveState.date && !setArchiveDate(options.date)) {
       return explain("Choose a UTC date available in the selected historical case.");
@@ -2159,15 +2179,13 @@
     const index = { station: 0, population: 1, exposure: 2, shade: 3 }[kind];
     if (index === undefined) return;
     const explain = message => chatTurn ? writeReply(chatTurn, message) : reportAnalysis(message);
-    const drawn = options.scope === "selected" ? area()?.bounds : undefined;
+    const drawn = options.scope === "selected" ? options.bounds ?? area()?.bounds : undefined;
     if ((archiveState || caseRegion !== "London") && !await chooseCase("London", detailedEvent, index)) {
       return explain("The detailed London case could not load.");
     }
     if (kind === "station" && layerKey() !== "wow") chooseLayer("wow");
-    if (index !== stage) {
-      openChapter(index);
-      if (drawn && area()) selectArea(drawn);
-    }
+    if (index !== stage) await openChapter(index);
+    if (drawn && area() && area().bounds !== drawn) selectArea(drawn);
     if (options.scope === "london" && area() && (!area().chosen || area().bounds)) selectArea(undefined);
     if (options.scope === "selected" && area() && !area().bounds && (kind === "shade" || kind === "population")) {
       return explain("Draw an area first, or run the analysis for the full available area.");
@@ -2186,7 +2204,7 @@
       $("shade-value").value = options.shadePercent + "%";
     }
     const request = { kind, bounds: area()?.bounds, station: activeStation, comparison: options.compare ? comparison : undefined,
-      day: stationDay(), shadePercent: options.shadePercent ?? Number($("shade-percent").value) };
+      day: stationDay(), shadePercent: options.shadePercent ?? Number($("shade-percent").value), date: options.date, time: options.time };
     if ((kind === "exposure" || kind === "shade") && cityStreetModel()) Object.assign(request, { coverage: "city", mapFormat: "compact" });
     if (kind === "population") {
       if (options.group) $("population-group").value = options.group;
@@ -2303,13 +2321,15 @@
       }
       if (action?.type === "archive-layer") {
         if (action.layer === "case-utci") {
-          const modelTime = archiveState?.street?.timeUtc;
+          if (stage !== 2) await openChapter(2);
+          if (stage !== 2) return writeReply(chatTurn, "The July 2022 street chapter could not load.");
+          if (missingStreetCase()) return writeReply(chatTurn, chapter()[3]);
+          const modelTime = (archiveState?.street ?? cityStreetModel())?.timeUtc;
           if (modelTime && (action.date && action.date !== modelTime.slice(0, 10) ||
               action.time && !modelTime.slice(11).startsWith(action.time))) {
             return writeReply(chatTurn, "The available UTCI grid is for " + modelTime.slice(0, 16).replace("T", " ") + " UTC.");
           }
-          if (stage !== 2) openChapter(2);
-          return writeReply(chatTurn, chooseArchiveLayer("case-utci") ? "Showing the calculated UTCI grid." :
+          return writeReply(chatTurn, results.has(2) ? "Showing the calculated UTCI grid." :
             "Draw an area or use model coverage, then run heat exposure analysis to show the UTCI grid.");
         }
         if (stage !== 0) openChapter(0);
@@ -2329,7 +2349,8 @@
           "The selected case has no " + (missing[action.layer] ?? "data for that layer") + ".");
       }
       if (action?.type === "open-case") {
-        const opened = await chooseCase(action.region, action.event);
+        const index = stage === 2 && (!action.event || action.event === detailedEvent) ? 2 : 0;
+        const opened = await chooseCase(action.region, action.event, index);
         return writeReply(chatTurn, opened ? "Opening the " + (adminCatalog?.cities[action.region]?.name ?? "London") + " case." :
           "That city or event could not open. Check the case menu for available events.");
       }
@@ -2381,7 +2402,7 @@
   $("regional-metric").onchange = event => {
     const metric = event.target.value;
     const current = $("regional-event").value;
-    loadRegional({ metric, event: current });
+    loadRegional({ metric, event: metric === "street" ? detailedEvent : current });
   };
   $("enter").onclick = () => chooseCase(caseRegion);
   $("intro-compare").onclick = () => openChapter(4);
@@ -2389,7 +2410,7 @@
     selectPanel("analysis");
     openChapter(event.target.value === "comparison" ? 4 : 0, true, undefined, true);
   };
-  $("case-city").onchange = event => { selectPanel("analysis"); chooseCase(event.target.value); };
+  $("case-city").onchange = event => { selectPanel("analysis"); chooseCase(event.target.value, undefined, stage === 2 ? 2 : 0); };
   $("case-event").onchange = event => chooseCase(caseRegion, event.target.value, stage);
   $("archive-layer").onchange = event => chooseArchiveLayer(event.target.value);
   $("archive-model").onchange = event => {

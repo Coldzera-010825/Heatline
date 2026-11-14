@@ -1,7 +1,7 @@
 import { method, summarize, validBounds } from "./analysis.mjs";
 import { analyzeShade } from "./event-analysis.mjs";
 import { evaluateStreetGrid } from "./utci.mjs";
-import { matchesSnapshot, requestTime, viewIntent } from "./request-time.mjs";
+import { matchesSnapshot, requestTime, streetEvent2022, streetYearOnly, viewIntent } from "./request-time.mjs";
 import { analyzePopulation } from "./london-population.mjs";
 import { matchedPoints, residentialTiles } from "./residential-map.mjs";
 import { analyzeCityStreet } from "./city-street.mjs";
@@ -29,6 +29,8 @@ const valueLabel = n => Number.isFinite(n) ? n.toFixed(2) + "°C" : "no matched 
 const inside = (lon, lat, bounds) => !bounds || lon >= bounds[0] && lat >= bounds[1] && lon <= bounds[2] && lat <= bounds[3];
 const share = x => (Math.min(1, x) * 100).toFixed(1) + "%";
 const canonical = region => region === "DeBilt" ? "Utrecht" : region;
+const missingStreetCase = name => name + " has no archived 2022 heatwave dates or event-hour street model. " +
+  "It still needs the 2022 event time, hourly weather, terrain and surface heights, buildings, canopy and a walkable network.";
 const snapshots = event => [event.snapshot, event.coreSnapshot].filter(Boolean);
 const snapshotTimes = snapshot => snapshot.times?.length ? snapshot.times : [snapshot.datetime];
 
@@ -43,6 +45,9 @@ export async function compareStreet({ regions, event, date, time }, progress, re
       regions.some(city => typeof city !== "string" || !Object.hasOwn(catalog.cities, city))) {
     return problem("clarify", "Choose two different archived cities.");
   }
+  if (event !== streetEvent2022) return problem("unavailable", streetYearOnly);
+  const unarchived = regions.filter(region => !catalog.cities[region].events[event]).map(region => catalog.cities[region].name);
+  if (unarchived.length) return problem("unavailable", "No archived 2022 street case for " + unarchived.join(" or ") + ".");
   const cases = regions.map(city => Object.hasOwn(catalog.streetModels?.[city] ?? {}, event) ? catalog.streetModels[city][event] : null);
   if (cases.some(pilot => !pilot)) return problem("unavailable", "Both cities need walking-network simulations for this historical event.");
   if (cases[0].timeUtc !== cases[1].timeUtc || cases.some(pilot => pilot.gridM !== 100 || pilot.terrainM !== 5 || pilot.engine !== cases[0].engine) ||
@@ -67,8 +72,8 @@ export async function compareStreet({ regions, event, date, time }, progress, re
       " walking-length-weighted UTCI in the two modelled pilots." };
 }
 
-export async function loadArchive(selection, read) {
-  const catalog = await read("catalog.json", "json");
+export async function loadArchive(selection, read, catalog) {
+  catalog ??= await read("catalog.json", "json");
   const city = catalog.cities.find(item => item.id === canonical(selection?.region));
   const record = city?.cases.find(item => item.id === selection?.event);
   if (!record) return null;
@@ -260,8 +265,18 @@ function* packedResidents(population, surface, index, census, bounds) {
 }
 
 export async function analyzeArchive(body, progress, read, readAdmin) {
+  if (body.kind === "exposure" && body.archiveCase?.event && body.archiveCase.event !== streetEvent2022) {
+    return problem("unavailable", streetYearOnly);
+  }
   const data = await loadArchive(body.archiveCase, read);
-  if (!data) return problem("clarify", "Choose a city and an event from the case archive.");
+  if (!data) {
+    if (body.kind === "exposure" && body.archiveCase?.event === streetEvent2022) {
+      const { cities } = await read("catalog.json", "json");
+      const city = cities.find(item => item.id === canonical(body.archiveCase.region));
+      if (city) return problem("unavailable", missingStreetCase(city.name));
+    }
+    return problem("clarify", "Choose a city and an event from the case archive.");
+  }
   const { kind, bounds } = body;
   if (bounds != null && !validBounds(bounds)) return problem("clarify", "Draw a rectangle with valid coordinates.");
   const catalog = await readAdmin("catalog.json");
@@ -410,14 +425,16 @@ export async function analyzeArchive(body, progress, read, readAdmin) {
 export async function archiveChat(body, progress, read, run, normalChat) {
   const { message, archiveCase } = body;
   if (typeof message !== "string" || !message.trim() || message.length > 1000) return problem("clarify", "Enter a question about the selected historical case.");
-  const data = await loadArchive(archiveCase, read);
-  if (!data) return problem("clarify", "Choose a city and event from the case archive.");
+  const catalog = await read("catalog.json", "json");
+  const { cities } = catalog;
+  const data = await loadArchive(archiveCase, read, catalog);
+  const selectedCity = cities.find(item => item.id === canonical(archiveCase?.region));
+  if (!data && (!selectedCity || archiveCase.event !== streetEvent2022)) return problem("clarify", "Choose a city and event from the case archive.");
   const query = message.normalize("NFKC").toLowerCase();
   const dispatch = (type, extra, reply = "") => ({ ok: true, status: "complete", provider: "local", reply, action: { type, ...extra } });
   if (/\b(?:forecast|tomorrow|current weather|health risks?|heat risks?|deaths?|flood\w*|coolest route|hourly utci)\b|预报|明天|死亡|洪水|最凉路线|高温风险|健康风险/.test(query)) {
     return { ...problem("unsupported", "This historical case does not contain forecasts, health outcomes, flood data or route routing."), provider: "local" };
   }
-  const { cities } = await read("catalog.json", "json");
   const names = { London: "伦敦", Paris: "巴黎", Brussels_Uccle: "布鲁塞尔", Amsterdam: "阿姆斯特丹",
     Lille: "里尔", Utrecht: "乌得勒支", Portland: "波特兰", Seattle: "西雅图" };
   const mentions = cities.filter(city => query.includes(city.name.toLowerCase()) ||
@@ -429,7 +446,11 @@ export async function archiveChat(body, progress, read, run, normalChat) {
       /\b(?:global view|globe|global (?:heat|map)|global era5)\b|全球视图|回到地球/.test(query)) {
     return normalChat(body);
   }
-  const requested = requestTime(query, data.peak.slice(0, 4));
+  const shadePercentText = query.match(/(-?\d+(?:\.\d+)?)\s*(?:%|percent|per cent)/)?.[1];
+  const shadeRequest = /\b(?:shade|shading|shaded)\b|遮荫|遮阴/.test(query) || body.chapter === 4 && shadePercentText !== undefined;
+  const walkingRequest = !shadeRequest && (/\b(?:utci|pedestrian heat|walking heat|thermal stress)\b|行人热|街道热|步行热/.test(query) ||
+    body.chapter === 3 && /\b(?:heat|exposure|hotspots?)\b|暴露|热点/.test(query));
+  const requested = requestTime(query, walkingRequest ? "2022" : data?.peak.slice(0, 4) ?? "2022");
   if (requested.invalid) return { ...problem("clarify", "Enter a valid date and time in UTC."), provider: "local" };
   const { date: explicitDate, explicitYear, time } = requested;
   if (mentions.length === 1 && /\b(?:fly|go to|navigate|open .*case|locate)\b|切换城市|飞到/.test(query)) {
@@ -438,14 +459,21 @@ export async function archiveChat(body, progress, read, run, normalChat) {
     const record = /\b(?:aug(?:ust)?)\b|8\s*月/.test(query) ?
       records.find(item => item.peak.slice(5, 7) === "08") ?? records[0] :
       records.find(item => !item.pointOnly) ?? records[0];
-    if (explicitYear && !record) return { ...problem("unavailable", city.name + " has no archived case for " + explicitYear + "."), provider: "local" };
-    const event = record?.id;
+    const streetCase = body.chapter === 3 && explicitYear === "2022";
+    if (explicitYear && !record && !streetCase) return { ...problem("unavailable", city.name + " has no archived case for " + explicitYear + "."), provider: "local" };
+    const event = streetCase ? streetEvent2022 : record?.id;
     return dispatch("open-case", { region: city.id, event }, "Opening the " + city.name + " case.");
   }
-  if (mentions.some(city => city.id !== data.region)) {
+  if (mentions.some(city => city.id !== selectedCity?.id)) {
     return { ...problem("clarify", "Select that study area in Single city case, or ask for a comparison between two named study areas."), provider: "local" };
   }
-  if (explicitYear && !data.peak.startsWith(explicitYear)) {
+  if (walkingRequest && explicitYear && explicitYear !== "2022") {
+    return { ...problem("unavailable", streetYearOnly), provider: "local" };
+  }
+  const methodRequest = /\b(?:method|formula|how (?:is|was|do you).*(?:calculat|comput)\w*)\b|计算方法|怎么算/.test(query);
+  if (!data && methodRequest) return dispatch("method", {}, method);
+  if (!data) return { ...problem("unavailable", missingStreetCase(selectedCity.name)), provider: "local" };
+  if (!walkingRequest && explicitYear && !data.peak.startsWith(explicitYear)) {
     return { ...problem("clarify", "The selected case is " + scope(data) + ". Choose a " + explicitYear + " event to analyse that year."), provider: "local" };
   }
   const date = explicitDate ?? body.date;
@@ -473,8 +501,6 @@ export async function archiveChat(body, progress, read, run, normalChat) {
   const stationRequest = /\b(?:stations?|noaa|isd|hourly observations?)\b|气象站|站点/.test(query);
   const compare = /\b(?:compar\w*|versus|another station|other station)\b|比较|对比/.test(query);
   const followUp = /\b(?:what does|what do|tell me|explain|analys\w*|interpret|compar\w*|peak|warmest|summary)\b|说明|分析|解释|比较|最高/.test(query);
-  const shadePercentText = query.match(/(-?\d+(?:\.\d+)?)\s*(?:%|percent|per cent)/)?.[1];
-  const methodRequest = /\b(?:method|formula|how (?:is|was|do you).*(?:calculat|comput)\w*)\b|计算方法|怎么算/.test(query);
   if (methodRequest) {
     const reply = [
       "The case distinguishes UTC station observations, coarse regional air temperature and dated Landsat surface temperature.",
@@ -485,7 +511,7 @@ export async function archiveChat(body, progress, read, run, normalChat) {
     return dispatch("method", {}, reply);
   }
   let kind;
-  if (/\b(?:shade|shading|shaded)\b|遮荫|遮阴/.test(query) || body.chapter === 4 && shadePercentText !== undefined) kind = "shade";
+  if (shadeRequest) kind = "shade";
   else if (groups) kind = "groups";
   else if ((stationRequest || body.layer === "case-noaa" && body.station) && followUp) kind = "station";
   const alias = [
@@ -517,8 +543,7 @@ export async function archiveChat(body, progress, read, run, normalChat) {
     if (time && !satellite) return { ...problem("clarify", "This map layer is static or uses daily values. Choose a UTC day rather than an hour."), provider: "local" };
     return dispatch("archive-layer", { layer, date: ["air-max", "noaa"].includes(alias) ? explicitDate : undefined });
   }
-  if (!kind && (/\b(?:utci|pedestrian heat|walking heat|thermal stress)\b|行人热|街道热|步行热/.test(query) ||
-    body.chapter === 3 && /\b(?:heat|exposure|hotspots?)\b|暴露|热点/.test(query))) kind = "exposure";
+  if (!kind && walkingRequest) kind = "exposure";
   if (!kind && /\b(?:population|expos\w*|residents?)\b|人口|暴露/.test(query)) kind = "population";
   if (!kind && /\b(?:weather|temperature|heatwave|anomal\w*|p90)\b|气温|气象|热浪/.test(query)) kind = "weather";
   if (!kind) return { ...problem("clarify", "Try opening LST, analysing station weather, or calculating population exposure for the selected case."), provider: "local" };
@@ -533,7 +558,8 @@ export async function archiveChat(body, progress, read, run, normalChat) {
   }
   if (time && !areaKind) return { ...problem("clarify", "Choose a UTC day or full event. The station chart shows available hours within that period."), provider: "local" };
   const shadePercent = kind === "shade" ? Number(shadePercentText ?? body.shadePercent ?? 25) : undefined;
-  const request = { kind, archiveCase, date: areaKind ? explicitDate : date, time,
+  const request = { kind, archiveCase: kind === "exposure" ? { region: data.region, event: streetEvent2022 } : archiveCase,
+    date: areaKind ? explicitDate : date, time,
     model: body.model, station: body.station, comparison: body.comparison, shadePercent,
     compare: kind === "station" && compare, stationPeriod: kind === "station" && explicitDate ? "day" : body.stationPeriod,
     scope: areaKind && (full || rank) ? "full" : undefined, bounds: areaKind && !full && !rank ? body.bounds : undefined,

@@ -1,6 +1,6 @@
 import { method, validBounds } from "./analysis.mjs";
 import { districts, populationGroups } from "./london-population.mjs";
-import { matchesSnapshot, requestTime, viewIntent } from "./request-time.mjs";
+import { matchesSnapshot, requestTime, streetYearOnly, viewIntent } from "./request-time.mjs";
 
 const layers = ["era5", "lst", "wow", "ndvi", "ndwi", "elevation", "landcover", "utci"];
 const actions = ["exposure", "station", "population", "shade", "risk", "navigate", "globe", "layer", "day", "view", "method", "regional", "unsupported", "clarify"];
@@ -11,14 +11,14 @@ const regions = {
   Amsterdam: /\bamsterdam\b|阿姆斯特丹/, Lille: /\blille\b|里尔/, Utrecht: /\butrecht\b|\bde\s*bilt\b|乌得勒支|德比尔特/,
   Portland: /\bportland\b|波特兰/, Seattle: /\bseattle\b|西雅图/,
 };
-const availability = "Open one of the eight archived city cases. Compare cities uses population-weighted Landsat surface temperature. Pedestrian UTCI and shade require modelled coverage for the selected city and date.";
+const availability = "Open one of the eight archived city cases. Compare cities uses population-weighted Landsat surface temperature. Pedestrian UTCI is available for 2022 where there is modelled walking-network coverage.";
 const instructions = [
   "Use heatline_action to route one action. Supported analyses are London pedestrian UTCI, WOW station weather, Census residential LST, and a paired shade scenario.",
   "Use layer to show era5, lst, wow, ndvi, ndwi, elevation, landcover, or utci. Use view to switch the active grid between flat and bars. Navigate opens London, globe opens global ERA5-Land.",
   "Day is a UTC day from 13 through 19 July 2022 for ERA5-Land or WOW. The LST, population, UTCI and shade results are a single 18 July snapshot.",
   "Exposure requires the existing map selection or an explicit request for the London study area. Never infer a named district polygon. Station requires the selected WOW station. Use compare true if the user requests a second station.",
   "Shade accepts an optional percentage of sunlit route length. Population compares all, older (65+), limited (day-to-day activities limited), deprived (IMD 1–2), and leastDeprived (IMD 9–10). For district results supply its LAD code; set rank true only for rankings across districts.",
-  "Regional compares residential Landsat surface heat or same-time street pilot UTCI within one archived event. ERA5 is regional context. Use individual city cases for shade or subgroup analyses.",
+  "Regional compares residential Landsat surface heat within one archived event or same-time street pilot UTCI in July 2022. ERA5 is regional context. Use individual city cases for shade or subgroup analyses.",
   "Use risk for clinical risk requests, unsupported for forecasts, unavailable metrics or locations, rainfall or routing, and clarify for ambiguity.",
 ].join(" ");
 
@@ -54,10 +54,11 @@ function regionalIntent(query) {
   }
   if (pair.length === 1) return { action: "clarify", reply: "Name a second city to compare in the same event." };
   const years = [...new Set(query.match(/\b(?:19|20)\d{2}\b/g) ?? [])];
-  const year = years[0] ?? (pair.some(region => ["Portland", "Seattle"].includes(region)) ? "2021" : street ? "2022" : "2020");
+  if (street && years.some(year => year !== "2022")) return { action: "unavailable", reply: streetYearOnly };
+  const year = years[0] ?? (street ? "2022" : pair.some(region => ["Portland", "Seattle"].includes(region)) ? "2021" : "2020");
   const event = eventIds.find(id => id.includes(year));
   const northwest = pair.filter(region => ["Portland", "Seattle"].includes(region)).length;
-  if (!event || years.length > 1 || (year !== "2021" && northwest) || (year === "2021" && northwest !== pair.length)) {
+  if (!event || years.length > 1 || !street && ((year !== "2021" && northwest) || (year === "2021" && northwest !== pair.length))) {
     return { action: "clarify", reply: "Choose two study areas covered by the same archived event. Portland and Seattle share the June 2021 heat dome; the European areas share the European events." };
   }
   const requested = requestTime(query, year);
@@ -86,13 +87,15 @@ function localIntent(message, context) {
     const event = eventIds.find(id => year[0] && id.includes(year[0]));
     const nw = region === "Seattle" || region === "Portland";
     const pointYear = !nw && ["2018", "2026"].includes(year[0]);
-    if (year.length && (!event && !pointYear || event && (event === "G1_2021-06") !== nw)) {
+    if (year.length && (!event && !pointYear || event && (event === "G1_2021-06") !== nw) && !(context.chapter === 3 && year[0] === "2022")) {
       return { action: "clarify", strict: true, reply: "No archived event for that city and year. Open the city case to see the available dates." };
     }
     const requestedEvent = year[0] === "2018" ? "X1_2018-07" :
       year[0] === "2026" && /\b(?:aug(?:ust)?)\b|8\s*月/.test(query) ? "X2_2026-07" : event;
     return { action: "open-case", region, event: requestedEvent, strict: true };
   }
+  if (year.some(value => value !== "2022") && /\b(?:pedestrian heat|walking heat|utci|thermal stress)\b|行人热|步行热|街道热/.test(query) &&
+      !/\b(?:shade|shading|shaded)\b|遮[荫阴]/.test(query)) return { action: "unavailable", strict: true, reply: streetYearOnly };
   if (year.some(value => value !== "2022") ||
       (date && (requested.month !== 7 || day < 13 || day > 19)) ||
       Object.entries(regions).some(([id, pattern]) => id !== "London" && pattern.test(query))) {
@@ -301,6 +304,7 @@ function executeIntent(intent, body, progress, analyze) {
       };
       return ready(methods[body.chapter] ?? method);
     }
+    case "unavailable": return problem("unavailable", intent.reply);
     case "unsupported": return problem("unsupported", availability);
     default: return problem("clarify", intent.reply ?? "Try “Compare residents aged 65+”, “Rank boroughs for residents aged 65+”, “Calculate pedestrian heat in my selection” or “Compare London and Paris in 2022”.");
   }

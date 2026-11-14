@@ -1,5 +1,11 @@
 # Heatline changelog
 
+## v17 — Focus walking heat exposure on 2022
+
+- Lock **At street level** to the 2022 heatwave case. All eight city boundaries remain selectable on this chapter. Seattle and Portland show which 2022 inputs are needed before analysis can run.
+- Apply the same year scope to the analysis API, Atlas and the walking-heat comparison. Archived weather, residential LST and paired shade retain their own dated cases.
+- July 2022 coverage is Greater London and the full Utrecht functional urban area, Amsterdam municipality within its functional urban area, and central Paris, Lille and Brussels pilots.
+
 ## v16 — Full Utrecht FUA pedestrian heat for July 2022
 
 - Publish a SOLWEIG run for the official Utrecht FUA footprint on 18 July 2022 at 10:52 UTC. The model has 46,814 walking cells, 1,163 eligible sun/shade pairs and about 9,081 km of represented routes.
