@@ -83,6 +83,9 @@ export async function analyzeCityStreet(body, model, city, progress, readAdmin) 
   const map = streetMap(rows, city.center[1], rows.length > detail, compact);
   if (body.mapOnly === true) return { ok: true, status: "complete", analysis: map };
   const summary = summarize(rows, bounds);
+  const coverage = model.modelTiles && !body.bounds ? {
+    tiles: model.modelTiles, weatherLocations: model.weatherLocations,
+  } : undefined;
   return {
     ok: true, status: "complete",
     reply: (body.bounds ? "Within the selected part of " + model.label : "Across " + model.label) +
@@ -90,7 +93,7 @@ export async function analyzeCityStreet(body, model, city, progress, readAdmin) 
       summary.cellCount.toLocaleString("en-GB") + " grid cells.",
     analysis: {
       ...summary, bounds, scope: body.bounds ? "selected" : model.scope, cityModel: true, modelScope: model.scope,
-      modelLabel: model.label, timeUtc: model.timeUtc,
+      modelLabel: model.label, timeUtc: model.timeUtc, coverage,
       source: model.engine + " · " + model.source,
       method: method + " UTCI is calculated from stored 5 m SOLWEIG radiation and the event-hour weather for each tile.",
       ...map,

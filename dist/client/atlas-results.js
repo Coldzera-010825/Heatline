@@ -288,6 +288,8 @@
         ["Model time", analysis.timeUtc.slice(0, 16).replace("T", " ") + " UTC"],
         ["Mean UTCI", format(meanUtci) + "°C"], ["Cell UTCI range", format(minUtci) + "–" + format(maxUtci) + "°C"],
         ["100 m cells", format(cellCount, 0)], ["Represented walking length", distance(pathLengthM)],
+          ...(analysis.coverage ? [["Model coverage", format(analysis.coverage.tiles, 0) + " tiles · " +
+            format(analysis.coverage.weatherLocations, 0) + " weather locations"]] : []),
         ["Walking length in cells ≥32°C UTCI", percent(strongHeat.pathLengthShare)],
       ]));
       const spotList = element("div", null, "result-options");

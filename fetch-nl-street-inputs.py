@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from math import ceil, floor
 from pathlib import Path
 import json
+import time
 
 import numpy as np
 import rasterio
@@ -24,13 +25,20 @@ FIELDS = ("temperature_2m", "relative_humidity_2m", "wind_speed_10m", "shortwave
 def download(url, params, path):
     if path.is_file():
         return
-    with requests.get(url, params=params, stream=True, timeout=(12, 110)) as response:
-        response.raise_for_status()
-        pending = path.with_suffix(".part")
-        with pending.open("wb") as stream:
-            for chunk in response.iter_content(1024 * 1024):
-                stream.write(chunk)
-        pending.replace(path)
+    pending = path.with_suffix(".part")
+    for attempt in range(3):
+        try:
+            with requests.get(url, params=params, stream=True, timeout=(12, 65)) as response:
+                response.raise_for_status()
+                with pending.open("wb") as stream:
+                    for chunk in response.iter_content(1024 * 1024):
+                        stream.write(chunk)
+            pending.replace(path)
+            return
+        except requests.RequestException as exc:
+            if attempt == 2 or exc.response is not None and exc.response.status_code in (400, 404):
+                raise
+            time.sleep(2 * (attempt + 1))
 
 
 def get_tile(directory, field, bounds):
@@ -69,7 +77,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--boundary", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--date", required=True)
+    parser.add_argument("--date", action="append", required=True, help="UTC date. Repeat to stage additional events.")
     parser.add_argument("--workers", type=int, default=6)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
@@ -85,10 +93,11 @@ def main():
     dims = ((n - s) // 5, (e - w) // 5)
     affine = from_origin(w, n, 5, 5)
     with ThreadPoolExecutor(args.workers) as executor:
-        forcing = executor.submit(weather, args.output, args.date, geo.bounds)
+        forcing = [executor.submit(weather, args.output, day, geo.bounds) for day in args.date]
         jobs = [executor.submit(get_tile, args.output, field, boundary) for boundary in tiles for field in ("dsm", "dtm")]
         parts = [job.result() for job in jobs]
-        forcing.result()
+        for job in forcing:
+            job.result()
     for field in ("dsm", "dtm"):
         out = args.output / (field + ".tif")
         pending = out.with_suffix(".mosaic")
