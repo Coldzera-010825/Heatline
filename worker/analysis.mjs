@@ -1,3 +1,5 @@
+import { matchesSnapshot } from "./request-time.mjs";
+
 const strongHeatThreshold = 32;
 const maxReturnedCellIds = 5000;
 const riskUnavailable = {
@@ -97,15 +99,18 @@ function summarize(rows, [west, south, east, north]) {
   };
 }
 
-async function analyzeArea({ bounds, metric = "exposure" }, progress, readData) {
+async function analyzeArea({ bounds, metric = "exposure", date, time }, progress, readData) {
   if (metric === "risk") return { ok: false, status: "unsupported", reply: riskUnavailable.message, heatRisk: riskUnavailable };
   if (metric !== "exposure") return { ok: false, status: "unsupported", reply: "Choose pedestrian heat exposure or heat risk." };
   if (bounds != null && !validBounds(bounds)) {
     return { ok: false, status: "clarify", reply: "Draw a rectangular area with valid map coordinates." };
   }
 
-  progress("Matching the area to London’s archived UTCI grid…");
   const manifest = await readData("manifest.json");
+  if (!matchesSnapshot(manifest.time, date, time)) {
+    return { ok: false, status: "unavailable", reply: "The London UTCI archive covers " + manifest.time.slice(0, 16).replace("T", " ") + " UTC." };
+  }
+  progress("Matching the area to London’s archived UTCI grid…");
   const shards = bounds ? manifest.shards.filter(shard => intersects(shard.bounds, bounds)) : manifest.shards;
   const selection = bounds ?? shards.reduce(
     ([west, south, east, north], { bounds: [w, s, e, n] }) =>
@@ -144,4 +149,3 @@ async function analyzeArea({ bounds, metric = "exposure" }, progress, readData) 
 }
 
 export { analyzeArea, method, summarize, validBounds };
-

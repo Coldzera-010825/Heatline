@@ -93,17 +93,25 @@ for (const city of ["Seattle", "Portland"]) {
 const regional = await api({ message: "Compare Landsat residential heat exposure in Paris and Amsterdam in 2020", dispatch: true }, "chat");
 assert.deepEqual(regional.action, { type: "compare-events", event: "E2_2020-08", firstRegion: "Paris", secondRegion: "Amsterdam", metric: "surface" });
 const pairedStreet = await api({ message: "Compare Portland and Seattle walking UTCI in 2021", dispatch: true }, "chat");
-assert.equal(pairedStreet.action.metric, "street");
-assert.equal(pairedStreet.action.event, "G1_2021-06");
-const streetCompare = await api({ kind: "street-comparison", event: "G1_2021-06", regions: ["Portland", "Seattle"] });
+assert.equal(pairedStreet.status, "unavailable");
+assert.match(pairedStreet.reply, /2022 only/);
+const streetCompare = await api({ kind: "street-comparison", event: "E3_2022-07", regions: ["London", "Paris"] });
 assert(streetCompare.ok, JSON.stringify(streetCompare));
-assert.equal(streetCompare.event.timeUtc, "2021-06-28T20:00:00Z");
+assert.equal(streetCompare.event.timeUtc, "2022-07-18T10:52:15Z");
 assert(streetCompare.event.cities.every(city => city.features.features.length === city.cellCount));
-assert.equal((await api({ kind: "street-comparison", event: "G1_2021-06", regions: ["Portland", "Seattle"], date: "2021-06-29" })).status, "unavailable");
-const timedComparison = await ask("Compare Portland and Seattle walking UTCI on 28 June 2021 at 8:00 pm UTC");
-assert.equal(timedComparison.action.date, "2021-06-28");
-assert.equal(timedComparison.action.time, "20:00");
-assert.equal((await api({ kind: "street-comparison", event: "G1_2021-06", regions: ["Portland", "Seattle"], date: "2021-06-28", time: "21:00" })).status, "unavailable");
+const timedComparison = await ask("Compare London and Paris walking UTCI on 18 July 2022 at 10:52 UTC");
+assert.equal(timedComparison.action.date, "2022-07-18");
+assert.equal(timedComparison.action.time, "10:52");
+assert.equal((await api({ kind: "street-comparison", event: "E3_2022-07", regions: ["London", "Paris"], time: "11:00" })).status, "unavailable");
+assert.match((await api({ kind: "street-comparison", event: "G1_2021-06", regions: ["Portland", "Seattle"] })).reply, /2022 only/);
+assert.match((await api({ kind: "street-comparison", event: "E3_2022-07", regions: ["Portland", "Seattle"] })).reply, /No archived 2022 street case for Portland or Seattle/);
+for (const city of ["Seattle", "Portland"]) {
+  assert.match((await api({ archiveCase: archiveCase(city), kind: "exposure" })).reply, new RegExp(city + " has no archived 2022"));
+  assert.equal((await ask("Calculate pedestrian UTCI", archiveCase(city), { chapter: 3 })).status, "unavailable");
+}
+assert.match((await ask("Calculate pedestrian UTCI in 2020", paris)).reply, /2022 only/);
+assert.deepEqual((await ask("Calculate pedestrian UTCI", paris)).action.archiveCase, archiveCase("Paris"));
+assert.match((await api({ kind: "exposure", date: "2020-08-07" })).reply, /2022-07-18/);
 assert.equal((await api({ message: "Open the Amsterdam case", dispatch: true }, "chat")).action.region, "Amsterdam");
 assert.equal(Object.keys(admin.streetModels).length, 8);
 assert.equal(Object.values(admin.streetModels).reduce((n, items) => n + Object.keys(items).length, 0), 32);
@@ -118,13 +126,18 @@ for (const [city, events] of Object.entries(admin.streetModels)) for (const [eve
   const footprint = modelFootprint(model);
   const inside = evaluateStreetGrid(grid, model.weather, footprint);
   const full = await api({ archiveCase: caseKey, kind: "exposure", coverage: "pilot" });
-  assert(full.ok, JSON.stringify(full));
-  assert.equal(full.analysis.cellCount, inside.rows.length);
-  assert.equal(full.analysis.timeUtc, model.timeUtc);
-  const corner = [model.bounds[0], model.bounds[1], (model.bounds[0] + model.bounds[2]) / 2, (model.bounds[1] + model.bounds[3]) / 2];
-  const local = await api({ archiveCase: caseKey, kind: "exposure", coverage: "pilot", bounds: corner });
-  assert(local.ok, JSON.stringify(local));
-  assert.equal(local.analysis.cellCount, inside.rows.filter(([x, y]) => select(corner, x, y)).length);
+  if (event === "E3_2022-07") {
+    assert(full.ok, JSON.stringify(full));
+    assert.equal(full.analysis.cellCount, inside.rows.length);
+    assert.equal(full.analysis.timeUtc, model.timeUtc);
+    const corner = [model.bounds[0], model.bounds[1], (model.bounds[0] + model.bounds[2]) / 2, (model.bounds[1] + model.bounds[3]) / 2];
+    const local = await api({ archiveCase: caseKey, kind: "exposure", coverage: "pilot", bounds: corner });
+    assert(local.ok, JSON.stringify(local));
+    assert.equal(local.analysis.cellCount, inside.rows.filter(([x, y]) => select(corner, x, y)).length);
+  } else {
+    assert.equal(full.status, "unavailable");
+    assert.match(full.reply, /2022 only/);
+  }
   const zero = await api({ archiveCase: caseKey, kind: "shade", coverage: "pilot", shadePercent: 0 });
   if (inside.pairs.length === 0) {
     assert.equal(zero.status, "empty");
@@ -137,21 +150,25 @@ for (const [city, events] of Object.entries(admin.streetModels)) for (const [eve
   close(scenario.event.reduction, change / inside.pairs.reduce((n, r) => n + r[2], 0), .006);
   const chat = await api({ archiveCase: caseKey, message: "What if 50% of paths were shaded?", dispatch: true }, "chat");
   assert.equal(chat.action.shadePercent, 50);
-  console.log(city, full.analysis.cellCount, scenario.event.pairedCells, scenario.event.reduction + "°C");
+  console.log(city, event, inside.rows.length, scenario.event.pairedCells, scenario.event.reduction + "°C");
 }
 for (const [city, events] of Object.entries(admin.cityStreetModels)) for (const [event, model] of Object.entries(events)) {
   const caseKey = archiveCase(city, event);
   const pilot = admin.streetModels[city][event];
   const full = await api({ archiveCase: caseKey, kind: "exposure" });
-  assert(full.ok, JSON.stringify(full));
-  assert.equal(full.analysis.scope, model.scope);
-  if (model.scope !== "city") assert.equal((await api({ archiveCase: caseKey, kind: "exposure", coverage: "city" })).status, "unavailable");
+  if (event === "E3_2022-07") {
+    assert(full.ok, JSON.stringify(full));
+    assert.equal(full.analysis.scope, model.scope);
+    assert.equal(full.analysis.timeUtc, model.timeUtc);
+    assert(full.analysis.mapRows.length > 0);
+    if (model.scope !== "city") assert.equal((await api({ archiveCase: caseKey, kind: "exposure", coverage: "city" })).status, "unavailable");
+    const empty = await api({ archiveCase: caseKey, kind: "exposure", bounds: [0, 0, .01, .01] });
+    assert.equal(empty.status, "empty");
+  } else {
+    assert.equal(full.status, "unavailable");
+  }
   const footprint = modelFootprint(model);
   let cellCount = 0, pairCount = 0;
-  assert.equal(full.analysis.timeUtc, model.timeUtc);
-  assert(full.analysis.mapRows.length > 0);
-  const empty = await api({ archiveCase: caseKey, kind: "exposure", bounds: [0, 0, .01, .01] });
-  assert.equal(empty.status, "empty");
   const scenario = await api({ archiveCase: caseKey, kind: "shade", shadePercent: 50 });
   assert(scenario.ok && scenario.event.coverage.scope === model.scope && scenario.event.coverage.share <= 1);
   close(scenario.event.selection.reduction, scenario.event.reduction * scenario.event.coverage.share, .011);
@@ -168,7 +185,7 @@ for (const [city, events] of Object.entries(admin.cityStreetModels)) for (const 
     }
   }
   assert(sample, city + " model has eligible pairs beyond its pilot");
-  assert.equal(full.analysis.cellCount, cellCount);
+  if (full.ok) assert.equal(full.analysis.cellCount, cellCount);
   assert.equal(scenario.event.coverage.cells, cellCount);
   assert.equal(scenario.event.pairedCells, pairCount);
   const [lon, lat] = sample;
@@ -176,9 +193,11 @@ for (const [city, events] of Object.entries(admin.cityStreetModels)) for (const 
   const zero = await api({ archiveCase: caseKey, kind: "shade", bounds: neighborhood, shadePercent: 0 });
   assert(zero.ok && zero.event.coverage.scope === model.scope && zero.event.before === zero.event.after, JSON.stringify(zero));
   assert.equal(zero.event.selection.before, zero.event.selection.after);
-  const view = await api({ archiveCase: caseKey, kind: "exposure", mapOnly: true, bounds: neighborhood });
-  assert.equal(view.analysis.mapResolution, "100 m walking grid");
-  assert(view.analysis.mapRows.some(([x, y]) => x === lon && y === lat));
+  if (full.ok) {
+    const view = await api({ archiveCase: caseKey, kind: "exposure", mapOnly: true, bounds: neighborhood });
+    assert.equal(view.analysis.mapResolution, "100 m walking grid");
+    assert(view.analysis.mapRows.some(([x, y]) => x === lon && y === lat));
+  }
   console.log(city, event, model.cells, "city walking cells,", scenario.event.pairedCells, "eligible shade cells");
 }
 const londonFull = archiveCase("London");

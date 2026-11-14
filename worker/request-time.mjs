@@ -1,4 +1,7 @@
 // The map's observation and model controls use UTC throughout.
+export const streetEvent2022 = "E3_2022-07";
+export const streetYearOnly = "Pedestrian heat exposure is available for 2022 only.";
+
 const months = "january february march april may june july august september october november december".split(" ");
 const monthPattern = months.map(month => month.length > 3 ? month.slice(0, 3) + "(?:" + month.slice(3) + ")?" : month).join("|");
 const dayFirst = new RegExp("\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(" + monthPattern + ")(?:\\.?[ ,]+((?:19|20)\\d{2}))?\\b");
