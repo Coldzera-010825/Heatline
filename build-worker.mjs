@@ -14,7 +14,7 @@ writeFileSync(path.join(adminCatalog, "catalog.bin"), gzipSync(readFileSync(path
 mkdirSync(server, { recursive: true });
 for (const file of ["analysis.mjs", "event-analysis.mjs", "london-population.mjs", "case-analysis.mjs",
   "utci.mjs", "utci-coefficients.mjs", "request-time.mjs", "residential-map.mjs", "city-street.mjs", "study-boundary.mjs",
-  "street-review.mjs", "review-streets.mjs"]) {
+  "street-review.mjs", "review-streets.mjs", "district-analysis.mjs"]) {
   copyFileSync(path.join(project, "worker", file), path.join(server, file));
 }
 copyFileSync(path.join(project, "worker", "index.mjs"), path.join(server, "index.js"));

@@ -70,6 +70,7 @@
   const beacons = new Map();
   const areas = new Map([[1, { chosen: true }], [2, { chosen: false }], [3, { chosen: false }]]);
   const results = new Map(), variants = { 1: "residents", 3: "scenario" };
+  const districtComparisons = new Map();
   const compactLayout = matchMedia("(max-width:980px)");
   const phoneLayout = matchMedia("(max-width:600px)");
   const motionPreference = matchMedia("(prefers-reduced-motion: reduce)");
@@ -79,12 +80,20 @@
   const missingStreetCase = () => stage === 2 && Boolean(archiveState && !archiveState.record);
   const cityStreetModel = () => adminCatalog?.cityStreetModels?.[caseRegion]?.[caseEvent];
   const reviewModel = () => cityStreetModel() ?? adminCatalog?.streetModels?.[caseRegion]?.[caseEvent];
+  const districts = window.HEATLINE_DISTRICTS.create({ map, read: file => A.readAdmin(file), changed: changeDistrict });
   const review = window.HEATLINE_REVIEW.create({
     map, active: reviewing, canInspect: () => ready && !busy && !drawing && !caseLoading,
     census: () => adminCatalog?.cities?.[caseRegion]?.reviewCensus,
-    context: () => ({ archiveCase: { region: caseRegion, event: caseEvent }, bounds: area()?.bounds,
-      shadePercent: Number($("shade-percent").value), clip: archiveState?.clip ?? detailedClip }),
-    request: (body, onProgress = () => {}) => receive("/api/analysis", { ...body, clip: undefined, mapFormat: "compact" }, onProgress),
+    context: () => ({ archiveCase: { region: caseRegion, event: caseEvent }, bounds: districts.active() ? undefined : area()?.bounds,
+      districts: districts.payload(), shadePercent: Number($("shade-percent").value), clip: districts.clip() ?? archiveState?.clip ?? detailedClip }),
+    request: async (body, onProgress = () => {}) => {
+      const result = await receive("/api/analysis", { ...body, clip: undefined, mapFormat: "compact" }, onProgress);
+      if (body.kind === "review" && !body.bounds && !body.point && result.districtComparison && reviewing()) {
+        districtComparisons.set(stage, result.districtComparison);
+        districts.render(result.districtComparison);
+      }
+      return result;
+    },
     focusMap: center => move({ center, zoom: Math.max(15.4, map.getZoom()), pitch: 20, bearing: 0 }),
     narrate: narrateResult,
   });
@@ -413,6 +422,7 @@
       else if (!event.heatlineSpin && layerKey() !== "wow") refreshGrid();
     });
     review.install();
+    districts.install();
     map.on("movestart", event => {
       if (stage < 0 && event.originalEvent) {
         globeRotation = false;
@@ -563,6 +573,7 @@
       if (index !== 2) lastCase.set(region, nextEvent);
       if (changed) {
         results.clear();
+        districtComparisons.clear();
         areas.delete(reviewStage);
         review.reset();
         for (const [chapter, selected] of [[1, true], [2, false], [3, false]]) areas.set(chapter, { chosen: selected });
@@ -653,6 +664,7 @@
     const dayChanged = archiveState.date !== date;
     if (!dayChanged && !modelChanged) return true;
     archiveState.date = date;
+    districtComparisons.delete(0);
     if (results.get(0)?.event?.kind !== "archive-station" || (dayChanged && archiveState.stationPeriod === "day")) {
       results.delete(0);
       if (stage === 0) { reportAnalysis(); renderResult(); setStep("area"); }
@@ -670,6 +682,7 @@
     if (!archiveState.layers.some(item => item.id === id)) return false;
     if (stage === 1 && !["lst_c", "lst_core_c"].includes(id)) return false;
     archiveState.selected[stage] = id;
+    if (stage === 1) districtComparisons.delete(1);
     if (stage === 1 && results.delete(1)) renderResult();
     popup?.remove();
     hover?.remove();
@@ -771,6 +784,7 @@
       const promise = receive("/api/analysis", {
         kind, bounds, coverage: usingArchive() && archiveState.street?.scope !== "city" ? undefined : "city", mapOnly: true, mapFormat: "compact",
         archiveCase: { region: caseRegion, event: caseEvent }, shadePercent: result.event?.shadePercent,
+        districts: result.districtComparison ? districts.payload() : undefined,
       }, () => {}).catch(() => undefined);
       detail = { key, promise };
       streetDetails.set(result, detail);
@@ -851,6 +865,9 @@
         map.getSource("archive-station-points").setData(L.collection(points));
       }
       if (request !== gridRequest || key !== layerKey()) return;
+      if (result?.districtComparison && (popResult || streetKeys.includes(key))) {
+        features = features.map(feature => clipFeature(districts.clip(), feature)).filter(Boolean);
+      }
       archiveFrame = frame;
       gridKey = key;
       drawnGrid = L.collection(features);
@@ -1138,12 +1155,14 @@
         }))) };
       } else if (populationLayers.includes(key)) {
         if (key === "limited") L.layers.limited.label = "Resident share with limited activities";
-        grid = { resolution: "500 m display grid", features: L.populationGrid(result.event.tiles, key) };
+        const features = result.event.metricTiles ? L.residentialResultGrid(result.event.metricTiles, key, 500) : L.populationGrid(result.event.tiles, key);
+        grid = { resolution: "500 m display grid", features };
       } else grid = await L.londonGrid(key, bounds, zoom);
       if (id !== gridRequest || key !== layerKey()) return;
       const selectedBounds = area()?.bounds;
       const filtered = selectedBounds && result ? grid.features.features.map(feature => L.clip(feature, selectedBounds)).filter(Boolean) : grid.features.features;
-      drawnGrid = L.collection(filtered.map(feature => clipFeature(detailedClip, feature)).filter(Boolean));
+      drawnGrid = L.collection(filtered.map(feature => clipFeature(detailedClip, feature))
+        .map(feature => feature && result?.districtComparison ? clipFeature(districts.clip(), feature) : feature).filter(Boolean));
       gridKey = key;
       resolution = grid.resolution;
       barsGrid = undefined;
@@ -1210,6 +1229,11 @@
     popup?.remove();
     hover?.remove();
     if (stage < 0) return showGlobalDay();
+    if (results.get(0)?.districtComparison || districtComparisons.has(0)) {
+      results.delete(0);
+      districtComparisons.delete(0);
+      renderResult();
+    }
     if (layerKey() === "wow") {
       $("station-period").value = "day";
       results.delete(0);
@@ -1659,6 +1683,27 @@
     drawOutline(area()?.bounds);
   }
 
+  function changeDistrict(mode, bounds) {
+    if (mode === "frame") {
+      if (bounds) frameBounds(bounds, 15.3, stage >= 2 ? 25 : 14, 0);
+      refreshGrid();
+      return;
+    }
+    for (const index of cityChapters) results.delete(index);
+    districtComparisons.clear();
+    if (area() && districts.active()) areas.set(stage, { chosen: true });
+    review.reset();
+    reportAnalysis();
+    setStep("area");
+    clearGrid();
+    outline();
+    areaLabel();
+    if (usingArchive()) updateArchiveControls();
+    renderResult();
+    updateControls();
+    refreshGrid();
+  }
+
   function areaLabel() {
     const selection = area();
     if (!selection) return;
@@ -1692,6 +1737,7 @@
       coverage.hidden = model?.scope === "city";
       coverage.textContent = model?.scope === "city" ? "" : "Results cover the available walking model.";
     }
+    if (districts.active()) $("area-name").textContent = districts.label();
   }
 
   function setDrawing(on) {
@@ -1722,6 +1768,7 @@
     areas.set(stage, selection);
     if (reviewing()) review.reset("Area changed. Run AI Analyze to update the briefing.");
     results.delete(stage);
+    districtComparisons.delete(stage);
     reportAnalysis();
     clearGrid();
     setStep("area");
@@ -1788,7 +1835,9 @@
     for (const id of ["regional-event", "regional-metric", "regional-first", "regional-second"]) $(id).disabled = busy || !ready || regionalLoading || !adminCatalog;
     $("regional-event").disabled ||= $("regional-metric").value === "street";
     $("view-mode").querySelector('[value="comparison"]').disabled = !adminCatalog;
-    $("run-analysis").disabled ||= drawing || (!area()?.chosen && !(usingArchive() && stage >= 2));
+    $("run-analysis").disabled ||= drawing || (!districts.active() && !area()?.chosen && !(usingArchive() && stage >= 2));
+    $("district-weather").hidden = stage !== 0 || usingArchive() || !districts.active();
+    districts.setBusy(busy || !ready || caseLoading || drawing);
     $("clear-analysis").disabled ||= drawing;
     if (usingArchive() && stage >= 2 && !archiveState.street) {
       $("draw-area").disabled = $("full-area").disabled = $("shade-percent").disabled = true;
@@ -1910,7 +1959,8 @@
 
   function renderResult(animate = false) {
     const result = results.get(stage);
-    const show = Boolean(result) && (stage !== 0 || layerKey() === "wow" || usingArchive());
+    districts.render(districts.active() ? districtComparisons.get(stage) : undefined);
+    const show = Boolean(result) && (stage !== 0 || layerKey() === "wow" || usingArchive() || result.districtComparison);
     const node = $("analysis-result");
     node.hidden = !show;
     $("analysis-footer").hidden = reviewing() ? !review.ready() : !show || !area();
@@ -1967,6 +2017,7 @@
     $("guide").hidden = false;
     $("panel-switch").hidden = stage < 0;
     $("chapter-nav").hidden = stage < 0 || stage === 4;
+    void districts.show(caseRegion, cityChapters.includes(stage));
     updateCaseHeader();
     $("case-event-controls").hidden = stage < 0 || stage === 2 || stage === 4;
     $("archive-workspace").hidden = !usingArchive() || stage >= 2;
@@ -2051,6 +2102,10 @@
     if (index === 4) {
       if (previous !== index && !regionalState) move(europe, false);
       return loadRegional(regionalOptions, animate);
+    }
+    if (districts.active() && districts.bounds()) {
+      if (previous !== index || forceFrame) frameBounds(districts.bounds(), 15.3, index >= 2 ? 25 : 14, 0, animate);
+      return refreshGrid();
     }
     if (reviewing()) {
       const bounds = area()?.bounds ?? reviewModel()?.bounds ?? adminCatalog?.cities[caseRegion]?.bbox;
@@ -2157,6 +2212,44 @@
   function syncPopulationOptions(primary = "population-group") {
     const other = primary === "population-group" ? "population-reference" : "population-group";
     if ($(primary).value === $(other).value) $(other).value = $(primary).value === "all" ? "older" : "all";
+  }
+
+  async function performDistrict(kind) {
+    const selection = districts.payload();
+    if (!selection || !kind) return;
+    const weather = kind === "weather";
+    const request = { kind, districts: selection, archiveCase: { region: caseRegion, event: caseEvent },
+      date: weather ? (usingArchive() ? archiveState.date : `2022-07-${String(day).padStart(2, "0")}`) :
+        stage === 1 && usingArchive() ? displayedSnapshot()?.datetime.slice(0, 10) : undefined,
+      model: weather && usingArchive() ? archiveState.model : undefined,
+      shadePercent: Number($("shade-percent").value), mapFormat: "compact",
+      ...(kind === "groups" ? { group: $("population-group").value, reference: $("population-reference").value } : {}),
+    };
+    results.delete(stage);
+    districtComparisons.delete(stage);
+    setStep("run");
+    renderResult();
+    clearGrid();
+    progress(selection.second ? "Comparing both administrative areas…" : "Analysing the selected administrative area…");
+    const outcome = await receive("/api/analysis", request, progress);
+    if (outcome.districtComparison) districtComparisons.set(stage, outcome.districtComparison);
+    if (!outcome.ok) {
+      setStep("area");
+      renderResult();
+      if (!outcome.districtComparison) reportAnalysis(outcome.reply);
+      return;
+    }
+    results.set(stage, { ...outcome, run: ++analysisRun });
+    if (stage === 1) variants[1] = "residents";
+    if (stage === 3) variants[3] = "scenario";
+    setStep("result");
+    if (usingArchive()) updateArchiveControls();
+    areaLabel();
+    renderResult();
+    updateVisibility();
+    const target = districts.bounds();
+    if (target) frameBounds(target, 15.3, stage >= 2 ? 25 : 14, 0);
+    await refreshGrid();
   }
 
   function updatePopulationGroups() {
@@ -2528,8 +2621,10 @@
   }
   $("population-group").value = "deprived";
   $("population-reference").value = "leastDeprived";
-  $("population-group").onchange = () => syncPopulationOptions();
-  $("population-reference").onchange = () => syncPopulationOptions("population-reference");
+  for (const id of ["population-group", "population-reference"]) $(id).onchange = () => {
+    syncPopulationOptions(id);
+    if (districts.active()) { districtComparisons.delete(1); results.delete(1); renderResult(); refreshGrid(); }
+  };
   $("rank-boroughs").onclick = () => withBusy(() => perform(usingArchive() ? "groups" : "population", { scope: "london", rank: true }));
   for (const id of ["regional-event", "regional-first", "regional-second"]) $(id).onchange = () => loadRegional();
   $("regional-metric").onchange = event => {
@@ -2577,8 +2672,9 @@
     updateArchiveControls();
     refreshGrid();
   };
-  $("archive-weather").onclick = () => withBusy(() => performArchive("weather"));
-  $("archive-groups").onclick = () => withBusy(() => performArchive("population"));
+  $("archive-weather").onclick = () => withBusy(() => districts.active() ? performDistrict("weather") : performArchive("weather"));
+  $("district-weather").onclick = () => withBusy(() => performDistrict("weather"));
+  $("archive-groups").onclick = () => withBusy(() => districts.active() ? performDistrict("population") : performArchive("population"));
   $("archive-analyse-station").onclick = () => withBusy(() => performArchive("station"));
   $("archive-compare-stations").onclick = () => withBusy(() => performArchive("station", { compare: true }));
   $("show-analysis-panel").onclick = () => selectPanel("analysis");
@@ -2592,22 +2688,30 @@
   $("spin-globe").onclick = () => { globeRotation = !globeRotation; updateGlobeRotation(); };
   $("view-flat").onclick = () => setView("flat");
   $("view-bars").onclick = () => setView("bars");
-  $("draw-area").onclick = () => setDrawing(!drawing);
+  $("draw-area").onclick = () => { if (!drawing) districts.reset(); setDrawing(!drawing); };
   $("clear-analysis").onclick = clearAnalysis;
-  $("full-area").onclick = () => selectArea(undefined, true);
+  $("full-area").onclick = () => { districts.reset(); selectArea(undefined, true); };
   $("shade-percent").oninput = e => {
     e.target.value = String(Math.round(Number(e.target.value) * 10) / 10);
     $("shade-value").value = e.target.value + "%";
     results.delete(3);
+    districtComparisons.delete(3);
+    districtComparisons.delete(reviewStage);
     clearGrid();
     renderResult();
     setStep("area");
     if (usingArchive()) updateArchiveControls();
     refreshGrid();
   };
-  $("run-analysis").onclick = () => reviewing() ? submit("Review this area") : withBusy(() => perform({
+  $("review-focus").addEventListener("change", () => { districtComparisons.delete(reviewStage); districts.render(); });
+  $("run-analysis").onclick = () => {
+    if (reviewing()) return submit("Review this area");
+    const kind = {
     1: usingArchive() && canCompareGroups() ? "groups" : "population", 2: "exposure", 3: "shade",
-  }[stage]));
+    }[stage];
+    const districtKind = stage === 1 && canCompareGroups() ? "groups" : kind;
+    return withBusy(() => districts.active() ? performDistrict(districtKind) : perform(kind));
+  };
   $("station").onchange = e => selectStation(e.target.value);
   $("station-period").onchange = () => { results.delete(0); renderResult(); renderObservations(); };
   $("comparison-station").onchange = e => {

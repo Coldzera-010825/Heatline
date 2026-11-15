@@ -4,6 +4,8 @@ import { analyzePopulation, analyzeShade, analyzeStation } from "./event-analysi
 import { analyzeArchive, archiveChat, compareStreet } from "./case-analysis.mjs";
 import { analyzeCityStreet } from "./city-street.mjs";
 import { analyzeStreetReview } from "./street-review.mjs";
+import { analyzeDistricts } from "./district-analysis.mjs";
+import { matchesSnapshot } from "./request-time.mjs";
 import { pruneResearch, workspace } from "./workspace.mjs";
 
 const maxBodyBytes = 16 * 1024;
@@ -73,6 +75,21 @@ async function handleApi(request, url, env) {
   const readCase = (filename, format) => readAsset("cases", filename, format);
   const readAdmin = (filename, format) => readAsset("admin", filename, format);
   const runArchive = (options, progress) => analyzeArchive(options, progress, readCase, readAdmin);
+  async function runDistrict(options, district, progress) {
+    if (options.kind === "review" || options.kind === "review-streets") {
+      return analyzeStreetReview(options, progress, readAdmin, district);
+    }
+    const { region, event } = options.archiveCase;
+    if (options.kind === "groups" && region === "London" && event === "E3_2022-07") {
+      if (!matchesSnapshot("2022-07-18T10:52:15Z", options.date, options.time)) {
+        return { ok: false, status: "unavailable", reply: "The London Census group analysis uses the 18 July 2022 Landsat snapshot at 10:52 UTC." };
+      }
+      const result = await analyzePopulation({ ...options, bounds: undefined, borough: district.code }, progress, readEvent);
+      if (result.ok) result.event.inCore = true;
+      return result;
+    }
+    return analyzeArchive(options, progress, readCase, readAdmin, district);
+  }
   async function analyze(options, progress) {
     if (options.coverage === "city" && (options.kind === "shade" || options.kind === "exposure")) {
       if (options.bounds != null && !validBounds(options.bounds)) return { ok: false, status: "clarify", reply: "Draw a valid rectangular area." };
@@ -96,6 +113,9 @@ async function handleApi(request, url, env) {
       if (url.pathname === "/api/chat" && body.narrate) return await narrate(body, env);
       if (url.pathname === "/api/chat" && typeof body.message === "string" && isPlatformQuestion(body.message)) {
         return await chat(body, progress, env, analyze);
+      }
+      if (url.pathname === "/api/analysis" && body.districts != null) {
+        return await analyzeDistricts(body, progress, readAdmin, runDistrict);
       }
       if (url.pathname === "/api/analysis" && (body.kind === "review" || body.kind === "review-streets")) {
         return await analyzeStreetReview(body, progress, readAdmin);

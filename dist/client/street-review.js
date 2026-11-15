@@ -120,7 +120,7 @@
       $("review-map-status").textContent = message;
     };
     const input = () => ({ ...context(), focus: $("review-focus").value });
-    const key = options => JSON.stringify([options.archiveCase, options.bounds ?? null, options.shadePercent, options.focus]);
+    const key = options => JSON.stringify([options.archiveCase, options.bounds ?? null, options.districts ?? null, options.shadePercent, options.focus]);
 
     function install() {
       const under = map.getStyle().layers.find(item => item.type === "symbol")?.id;

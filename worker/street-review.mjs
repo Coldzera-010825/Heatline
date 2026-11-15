@@ -57,12 +57,12 @@ function fieldPriority(census, row) {
   return null;
 }
 
-async function gridFor(model, selection, progress, read) {
-  if (model.shards) return evaluateCityStreet(model, selection, true, detailLimit, progress, read, true);
+async function gridFor(model, selection, progress, read, area) {
+  if (model.shards) return evaluateCityStreet(model, selection, true, detailLimit, progress, read, true, area);
   const grid = await read(model.file, "packed-json");
   const footprint = modelFootprint(model);
   progress("Evaluating the event-hour UTCI and shade lengths…");
-  return evaluateStreetGrid(grid, model.weather, (lon, lat) => inside(lon, lat, selection) && footprint(lon, lat), true);
+  return evaluateStreetGrid(grid, model.weather, (lon, lat) => inside(lon, lat, selection) && footprint(lon, lat) && (!area || area.contains(lon, lat)), true);
 }
 
 function inspect(row, pair, percent, priority) {
@@ -147,7 +147,7 @@ function summarize(rows, paired, percent, latitude, census) {
   };
 }
 
-export async function analyzeStreetReview(body, progress, read) {
+export async function analyzeStreetReview(body, progress, read, area) {
   const catalog = await read("catalog.json");
   const { region, event } = body.archiveCase ?? {};
   if (typeof region !== "string" || typeof event !== "string" || !Object.hasOwn(catalog.cities, region) ||
@@ -171,7 +171,7 @@ export async function analyzeStreetReview(body, progress, read) {
     const manifest = await streetManifest(region, event, model.timeUtc, read);
     if (!manifest) return problem("unavailable", "Street geometry needs OSM way IDs and a georeferenced shade split for this model time.",
       ["timestamp-matched street shade geometry"]);
-    return streetFeatures(manifest, selection, body.viewport, read);
+    return streetFeatures(manifest, selection, body.viewport, read, area);
   }
 
   const percent = body.shadePercent ?? 25;
@@ -185,7 +185,7 @@ export async function analyzeStreetReview(body, progress, read) {
   const point = body.point;
   let bounds = selection;
   if (point != null) {
-    if (!Array.isArray(point) || point.length !== 2 || !point.every(Number.isFinite) || !inside(...point, selection)) {
+    if (!Array.isArray(point) || point.length !== 2 || !point.every(Number.isFinite) || !inside(...point, selection) || area && !area.contains(...point)) {
       return problem("clarify", "Pick a location inside the selected study area.");
     }
     const span = .0011 / Math.max(.15, Math.cos(point[1] * Math.PI / 180));
@@ -194,7 +194,7 @@ export async function analyzeStreetReview(body, progress, read) {
     bounds = intersection(selection, around);
   }
   progress("Checking model time, terrain and walking-network coverage…");
-  const [grid, census] = await Promise.all([gridFor(model, bounds, progress, read), censusFor(city.reviewCensus, focus, read)]);
+  const [grid, census] = await Promise.all([gridFor(model, bounds, progress, read, area), censusFor(city.reviewCensus, focus, read)]);
   if (!grid.rows.length) return problem("empty", "No valid walking cells in this selection. Move the area onto a covered route.");
   const pairs = new Map(grid.pairs.map(pair => [id(pair[0], pair[1]), pair]));
   if (point) {
@@ -208,12 +208,13 @@ export async function analyzeStreetReview(body, progress, read) {
   const checks = [siteCheck, "Verify the actual sun and shade at the study time, including shade access and any detour.",
     "Confirm clear walking width, access rights, utilities and site safety before investigating an intervention."];
   const recommendation = "Where field observations confirm regular use and gaps in shade, assess shading a waiting location or connecting existing shade.";
-  return { ok: true, status: "complete", reply: `${model.label} has ${result.cellCount.toLocaleString("en-GB")} modelled walking cells. ` +
+  const label = area?.place ?? model.label;
+  return { ok: true, status: "complete", reply: `${label} has ${result.cellCount.toLocaleString("en-GB")} modelled walking cells. ` +
       `The baseline length-weighted UTCI is ${result.baseline.toFixed(2)}°C. ` +
       (result.pairedCells ? `${(result.pairedShare * 100).toFixed(1)}% of this walking length has valid sun and building-shade pairs.` : "This selection has baseline UTCI and needs paired sun and building-shade input for a scenario."),
-    review: { ...result, region, event, focus, group, checks, recommendation, label: model.label, source: model.source, engine: model.engine,
+    review: { ...result, region, event, focus, group, checks, recommendation, label, source: model.source, engine: model.engine,
       census: census ? { year: census.year, source: census.source, unit: census.unit } : null,
-      timeUtc: model.timeUtc, scope: model.scope ?? "pilot", bounds: selection, shadePercent: percent,
+      timeUtc: model.timeUtc, scope: area ? "administrative area" : model.scope ?? "pilot", bounds: selection, shadePercent: percent,
       streets: streets ? { terrainM: streets.terrainM, osmSnapshots: streets.osmSnapshots, source: streets.source,
         routeParts: streets.routeParts, rasterTiles: streets.rasterTiles } : null } };
 }

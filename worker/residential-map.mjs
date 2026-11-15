@@ -24,7 +24,7 @@ export function residentialTiles(points, latitude, metres = 500) {
   ]);
 }
 
-export function* matchedPoints(points, temperatures, bounds, census, keys = []) {
+export function* matchedPoints(points, temperatures, bounds, census, keys = [], area) {
   function* rows() {
     if (census) yield* census;
     else for (let i = 0; i < points.length; i++) yield [i, points[i][2]];
@@ -32,6 +32,7 @@ export function* matchedPoints(points, temperatures, bounds, census, keys = []) 
   for (const [index, count, ...values] of rows()) {
     const [lon, lat] = points[index];
     if (bounds && (lon < bounds[0] || lon > bounds[2] || lat < bounds[1] || lat > bounds[3])) continue;
+    if (area && !area.contains(lon, lat)) continue;
     const weights = { all: count };
     const denominators = {};
     let district;
