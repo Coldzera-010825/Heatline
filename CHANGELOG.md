@@ -1,5 +1,11 @@
 # Heatline changelog
 
+## v25 — Administrative area analysis
+
+- Add 13 administrative boundary layers for eight cities, including London boroughs, Paris arrondissements, European municipalities and U.S. Census layers.
+- Select one area or compare two at the same time and settings in each city chapter. Show matched residents, modelled routes and shade coverage with the relevant metrics.
+- Document boundary definitions, clipping, date matching and source links in Data & Methods and refresh the Atlas knowledge base.
+
 ## v24 — Atlas methods knowledge
 
 - Rebuild the Atlas knowledge base from the latest Data & Methods page, repository methods and case catalogue.

@@ -57,6 +57,54 @@ for (const [region, city] of Object.entries(admin.cities)) {
 }
 const paris = archiveCase("Paris", "E2_2020-08");
 const ask = (message, archiveCase, context = {}) => api({ message, archiveCase, dispatch: true, ...context }, "chat");
+const districtCatalog = JSON.parse(await readFile(new URL("./dist/client/data/admin/districts/catalog.json", import.meta.url)));
+assert.equal(Object.values(districtCatalog.cities).flat().length, 13);
+assert.equal(Object.keys(districtCatalog.cities).length, 8);
+const boroughs = districtCatalog.cities.London.find(layer => layer.level === "boroughs");
+assert.equal(boroughs.units.length, 33);
+const byCode = code => boroughs.units.find(unit => unit.code === code);
+const cityOfLondon = byCode("E09000001"), camden = byCode("E09000007"), westminster = byCode("E09000033");
+const district = (a, b) => ({ level: "boroughs", first: a.id, second: b?.id });
+const london = archiveCase("London");
+const twoAreas = district(camden, westminster);
+const dates = await api({ kind: "weather", archiveCase: london, districts: twoAreas, date: "2022-07-19" });
+assert(dates.ok);
+assert.deepEqual(dates.districtComparison.areas.map(area => area.name), ["Camden", "Westminster"]);
+assert(dates.event.air.validCells > 0 && dates.event.air.resolution === "0.1°");
+const invalidPair = await api({ kind: "weather", archiveCase: london, districts: district(camden, camden) });
+assert.equal(invalidPair.status, "clarify");
+const coded = await api({ kind: "groups", archiveCase: london, districts: district(cityOfLondon, camden), group: "older", reference: "all" });
+const legacy = await api({ kind: "population", borough: cityOfLondon.code, group: "older", reference: "all" });
+assert.deepEqual(coded.event.groups, legacy.event.groups);
+const walking = await api({ kind: "exposure", archiveCase: london, districts: twoAreas, mapFormat: "compact" });
+assert(walking.ok && walking.districtComparison.areas.every(area => area.ok));
+const boundsOnly = await api({ kind: "exposure", archiveCase: london, bounds: camden.bounds, mapFormat: "compact" });
+assert(walking.analysis.cellCount > 0 && walking.analysis.cellCount < boundsOnly.analysis.cellCount);
+const byDistrictShade = await api({ kind: "shade", archiveCase: london, districts: twoAreas, shadePercent: 25, mapFormat: "compact" });
+assert(byDistrictShade.ok && byDistrictShade.event.selection && byDistrictShade.districtComparison.areas.every(area => area.ok));
+const byDistrictReview = await api({ kind: "review", archiveCase: london, districts: twoAreas, focus: "older", mapFormat: "compact" });
+assert(byDistrictReview.ok && byDistrictReview.districtComparison.areas.every(area => area.ok));
+assert.equal(byDistrictReview.review.cellCount, walking.analysis.cellCount);
+assert.equal(byDistrictReview.review.scope, "administrative area");
+assert(byDistrictReview.districtComparison.areas[0].metrics.some(([label, value]) => label.includes("priority score") && Number.isFinite(value)));
+const streetsInLondon = await api({ kind: "review-streets", archiveCase: london, districts: district(cityOfLondon, camden),
+  viewport: [-.1105, 51.5125, -.096, 51.52] });
+const districtFile = new URL(`./dist/client/data/admin/districts/${boroughs.asset}-${cityOfLondon.shard}.geojson`, import.meta.url);
+const districtShapes = JSON.parse(await readFile(districtFile));
+const containsCity = modelFootprint({ boundaryClipped: true, geometry: districtShapes.features.find(x => x.id === cityOfLondon.id).geometry });
+assert(streetsInLondon.ok && streetsInLondon.streets.features.length > 0);
+for (const feature of streetsInLondon.streets.features) {
+  const line = feature.geometry.coordinates;
+  const [a, b] = [line[0], line[1]];
+  assert(containsCity((a[0] + b[0]) / 2, (a[1] + b[1]) / 2));
+}
+const arrondissements = districtCatalog.cities.Paris.find(layer => layer.level === "arrondissements");
+const [louvre, bourse] = ["75101", "75102"].map(code => arrondissements.units.find(unit => unit.code === code));
+const clippedParis = await api({ kind: "population", archiveCase: paris, date: "2020-08-07", mapFormat: "compact",
+  districts: { level: "arrondissements", first: louvre.id, second: bourse.id } });
+assert(clippedParis.districtComparison.areas.every(area => area.ok) && clippedParis.event.surface.population < 25000);
+assert.equal(clippedParis.districtComparison.full, false);
+console.log("Administrative boundaries, all five chapter comparisons, code joins and line clipping passed.");
 const importMethods = await ask("研究工作区支持什么文件格式？", paris, { chapter: 2 });
 assert.equal(importMethods.action.type, "answer");
 assert.match(importMethods.reply, /GeoJSON.*GeoTIFF.*CSV/i);

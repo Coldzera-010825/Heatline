@@ -63,13 +63,51 @@ function clipLine(line, box) {
   return pieces;
 }
 
-export async function streetFeatures(manifest, selection, viewport, read) {
+function districtClipper(area, window) {
+  if (!area) return line => [line];
+  const { geometry } = area;
+  const polygons = geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates;
+  const edges = [];
+  for (const polygon of polygons) for (const ring of polygon) for (let i = 1; i < ring.length; i++) {
+    const a = ring[i - 1], b = ring[i], bounds = lineBounds([a, b]);
+    if (overlaps(bounds, window)) edges.push({ a, b, bounds });
+  }
+  return line => {
+    const pieces = [];
+    for (let i = 1; i < line.length; i++) {
+      const a = line[i - 1], b = line[i], bounds = lineBounds([a, b]);
+      const dx = b[0] - a[0], dy = b[1] - a[1], cuts = [0, 1];
+      for (const edge of edges) {
+        if (!overlaps(bounds, edge.bounds)) continue;
+        const ex = edge.b[0] - edge.a[0], ey = edge.b[1] - edge.a[1];
+        const determinant = dx * ey - dy * ex;
+        if (!determinant) continue;
+        const x = edge.a[0] - a[0], y = edge.a[1] - a[1];
+        const t = (x * ey - y * ex) / determinant, u = (x * dy - y * dx) / determinant;
+        if (t > 0 && t < 1 && u >= 0 && u <= 1) cuts.push(t);
+      }
+      cuts.sort((a, b) => a - b);
+      for (let j = 1; j < cuts.length; j++) {
+        const start = cuts[j - 1], end = cuts[j];
+        if (end - start < 1e-10 || !area.contains(...interpolate(a, b, (start + end) / 2))) continue;
+        const p = interpolate(a, b, start), q = interpolate(a, b, end);
+        const previous = pieces.at(-1);
+        if (previous && Math.abs(previous.at(-1)[2] - p[2]) < 1e-6) previous.push(q);
+        else pieces.push([p, q]);
+      }
+    }
+    return pieces;
+  };
+}
+
+export async function streetFeatures(manifest, selection, viewport, read, area) {
   const empty = { type: "FeatureCollection", features: [] };
   if (!overlaps(selection, viewport)) return { ok: true, streets: empty };
   const window = intersection(selection, viewport);
   if (window[2] - window[0] > .065 || window[3] - window[1] > .048) {
     return { ok: false, status: "zoom", reply: "Zoom in to inspect individual OSM walking segments." };
   }
+  const clipDistrict = districtClipper(area, window);
   for (const tile of manifest.tiles.filter(tile => overlaps(tile.bounds, window))) {
     const data = await read(manifest.directory + tile.file, "packed-json");
     for (const [part, [way, name, vertices, runs]] of data.ways.entries()) {
@@ -84,7 +122,7 @@ export async function streetFeatures(manifest, selection, viewport, read) {
         if (end > start && code < 4) {
           const run = [cutAt(line, start), ...line.filter(point => point[2] > start && point[2] < end), cutAt(line, end)];
           if (overlaps(lineBounds(run), window)) {
-            for (const [piece, clipped] of clipLine(run, selection).entries()) {
+            for (const [piece, clipped] of clipLine(run, area ? window : selection).flatMap(clipDistrict).entries()) {
               if (!overlaps(lineBounds(clipped), window)) continue;
               const id = `${tile.id}:${way}:${part}:${i / 2}:${piece}`;
               const coordinates = clipped.map(([x, y]) => [x, y]);

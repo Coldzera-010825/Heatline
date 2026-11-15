@@ -9,7 +9,7 @@ const contains = (bounds, x, y) => bounds[0] <= x && x <= bounds[2] && bounds[1]
 const noCells = () => ({ ok: false, status: "empty", reply: "No modelled walking cells in the selected area. Move the selection onto covered routes." });
 const detailLimit = 14000;
 
-export async function evaluateCityStreet(model, bounds, shade, detail, progress, readAdmin, includeShadeLengths = false) {
+export async function evaluateCityStreet(model, bounds, shade, detail, progress, readAdmin, includeShadeLengths = false, area) {
   const shards = model.shards.filter(shard => overlaps(shard.bounds, bounds));
   const rows = [], pairs = [];
   const footprint = modelFootprint(model);
@@ -18,7 +18,8 @@ export async function evaluateCityStreet(model, bounds, shade, detail, progress,
     const batch = await Promise.all(shards.slice(i, i + 4).map(shard => readAdmin(shard.file, "packed-json")));
     for (const tile of batch.flat()) {
       if (!overlaps(tile.bounds, bounds)) continue;
-      const selected = evaluateStreetGrid(tile, tile.weather, (lon, lat) => contains(bounds, lon, lat) && footprint(lon, lat), includeShadeLengths);
+      const selected = evaluateStreetGrid(tile, tile.weather, (lon, lat) =>
+        contains(bounds, lon, lat) && footprint(lon, lat) && (!area || area.contains(lon, lat)), includeShadeLengths);
       for (const row of selected.rows) rows.push(row);
       if (shade) for (const row of selected.pairs) pairs.push(row);
       if (includeShadeLengths) {
@@ -59,7 +60,7 @@ function streetMap(rows, latitude, overview, compact) {
   };
 }
 
-export async function analyzeCityStreet(body, model, city, progress, readAdmin) {
+export async function analyzeCityStreet(body, model, city, progress, readAdmin, area) {
   if (!matchesSnapshot(model.timeUtc, body.date, body.time)) {
     return { ok: false, status: "unavailable", reply: model.label + " covers " +
       model.timeUtc.slice(0, 16).replace("T", " ") + " UTC." };
@@ -71,10 +72,10 @@ export async function analyzeCityStreet(body, model, city, progress, readAdmin) 
   }
   const compact = body.mapFormat === "compact";
   const detail = compact && (!body.bounds || body.mapOnly !== true) ? 6000 : detailLimit;
-  const { rows, pairs } = await evaluateCityStreet(model, bounds, body.kind === "shade", detail, progress, readAdmin);
+  const { rows, pairs } = await evaluateCityStreet(model, bounds, body.kind === "shade", detail, progress, readAdmin, false, area);
   if (!rows.length) return noCells();
   if (body.kind === "shade") return analyzeShade({
-    bounds, shadePercent: body.shadePercent ?? 25, timeUtc: model.timeUtc, place: model.label, source: model.source, latitude: city.center[1],
+    bounds, shadePercent: body.shadePercent ?? 25, timeUtc: model.timeUtc, place: area?.place ?? model.label, source: model.source, latitude: city.center[1],
     coverage: { cells: rows.length, pathM: rows.reduce((sum, row) => sum + row[3], 0), city: fullStudyArea, scope: model.scope },
     networkHeat: rows.reduce((sum, row) => sum + row[2] * row[3], 0),
     mapDetailLimit: detail, compact,
@@ -88,7 +89,7 @@ export async function analyzeCityStreet(body, model, city, progress, readAdmin) 
   } : undefined;
   return {
     ok: true, status: "complete",
-    reply: (body.bounds ? "Within the selected part of " + model.label : "Across " + model.label) +
+    reply: (area ? "In " + area.place : body.bounds ? "Within the selected part of " + model.label : "Across " + model.label) +
       ", walking-length-weighted UTCI was " + summary.meanUtci.toFixed(2) + "°C across " +
       summary.cellCount.toLocaleString("en-GB") + " grid cells.",
     analysis: {

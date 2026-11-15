@@ -32,6 +32,7 @@ const aliasGroups = {
   coverage: ["coverage", "valid", "覆盖", "有效率"],
   limitation: ["limitation", "caveat", "not observed", "cannot", "限制", "局限", "不能", "不代表"],
   cities: ["city", "cities", "study area", "boundary", "城市", "研究区", "边界"],
+  districts: ["administrative area", "borough", "municipality", "arrondissement", "census place", "行政区", "区划", "市镇"],
   weather: ["weather", "temperature", "humidity", "wind", "气温", "湿度", "风速"],
   station: ["station", "wow", "noaa", "气象站", "观测站"],
   atlas: ["atlas", "heatline", "平台", "网站"],

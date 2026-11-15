@@ -85,6 +85,38 @@ UTCI and aggregates the selected area and shade scenario when requested.
 Preparing SOLWEIG radiation for a new place or time runs in Python before
 publishing, typically taking minutes for an administrative area.
 
+## Administrative boundary inputs and weights
+
+The 15 November boundary delivery supplies 13 layers across eight cities.
+London uses the full ONS 2021 borough polygons and 33 LAD codes, including
+the City of London. The existing Census group archive carries the matched
+2021 Output Area to borough code. Seven functional urban areas use clipped
+polygons for the chosen unit. Paris arrondissements and U.S. Census places
+cover subsets of their larger study areas. Keep levels separate. Edge overlaps
+are marked in the control and the result reports the in-study area share.
+
+For a given date and weather model, assign GHS-POP 2020 centres in the polygon
+to the archived daily air grid. Estimates weight matched valid cells by
+estimated residents, and report the denominator and the number of valid coarse
+grid cells. Residential Landsat uses the same polygon membership or the London
+ONS code join for Census groups. Native inputs determine the coverage in each
+area. Report an unavailable result when data does not match the selection.
+
+Pedestrian and shade comparisons assign cells by their 100 m centres and
+retain existing represented length and the eligible 20 m sun and building
+shade condition. The same-time shade comparison keeps unpaired length at
+baseline. Field review applies the group and temperature settings separately
+to the two areas, with the line overlay clipped to the first area. The panel
+reports A minus B for two valid estimates from the same time and shows the
+current map detail for A.
+
+Rebuild the web dataset with `node prepare-district-data.mjs <delivery-root>`.
+The delivery path contains `manifest.json` and the district geometry folders.
+Sources are [ONS](https://www.data.gov.uk/dataset/5ca638fa-79d9-4d1f-a9ce-12ac929c8753/local-authority-districts-december-2021-boundaries-uk-bgc),
+[GISCO LAU](https://gisco-services.ec.europa.eu/distribution/v2/lau/lau-2021-files.html),
+[Ville de Paris](https://opendata.paris.fr/explore/dataset/arrondissements/)
+and the [U.S. Census Bureau](https://www.census.gov/geographies/mapping-files/time-series/geo/cartographic-boundary.2021.html).
+
 ## Review & Advise
 
 The `review` action on `POST /api/analysis` accepts the existing `archiveCase`

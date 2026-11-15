@@ -1,4 +1,4 @@
-const topic = /\b(?:heatline|atlas|platform|workspace|data|census|review|priority|utci|lst|ndvi|ndwi|mndwi|era5|solweig|shade|geotiff|geojson|csv|study areas?|boundar(?:y|ies)|walking heat|heat exposure)\b|平台|网站|工作区|研究空间|数据|人口|普查|优先级|核查|遮[荫阴]|地表温度|热暴露|研究区|边界/;
+const topic = /\b(?:heatline|atlas|platform|workspace|data|census|review|priority|utci|lst|ndvi|ndwi|mndwi|era5|solweig|shade|geotiff|geojson|csv|study areas?|administrative areas?|boroughs?|boundar(?:y|ies)|walking heat|heat exposure)\b|平台|网站|工作区|研究空间|数据|人口|普查|优先级|核查|遮[荫阴]|地表温度|热暴露|研究区|边界|行政区|区划/;
 const references = [
   /\b(?:data sources?|where (?:does|do|is|are).*(?:from|come))\b|来源|数据源|哪来的|从哪里|来自哪里/,
   /\b(?:definitions?|formula|how (?:is|are|was|were).*(?:calculated|estimated|modelled|modeled))\b|含义|定义|公式|如何计算|怎么算/,

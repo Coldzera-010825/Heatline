@@ -51,6 +51,15 @@
       <label for="case-event">Historical case</label><select id="case-event"></select>
     </div>
     <div id="chapter-map-controls"></div>
+    <section id="district-controls" class="data-controls district-controls" hidden aria-labelledby="district-title">
+      <h2 id="district-title">Administrative areas</h2>
+      <div id="district-level-row"><label for="district-level">Boundary layer</label><select id="district-level"></select></div>
+      <div id="district-filter-row" hidden><label for="district-filter">Find an area</label><input id="district-filter" type="search" autocomplete="off"></div>
+      <label for="district-first">Area A</label><select id="district-first"><option value="">Use the current map scope</option></select>
+      <label for="district-second">Compare with</label><select id="district-second" disabled><option value="">No comparison</option></select>
+      <p id="district-note" class="data-note" role="status"></p>
+      <button id="district-weather" class="run-analysis" type="button" hidden>Analyse area weather <span aria-hidden="true">↗</span></button>
+    </section>
     <section id="weather-reference" aria-label="London air-temperature reference" hidden></section>
     <section id="archive-workspace" aria-label="Historical case data" hidden>
       <div class="data-controls">
@@ -134,6 +143,7 @@
     </section>
     <div id="analysis-progress" class="analysis-progress" role="status" hidden><span aria-hidden="true"></span><p></p></div>
     <p id="analysis-notice" class="analysis-notice" role="status" hidden></p>
+    <section id="district-result" class="analysis-result district-result" aria-label="Administrative area results" hidden></section>
     <section id="analysis-result" class="analysis-result" aria-label="Analysis result" hidden></section>
     <section id="review-workspace" aria-label="Street review results" hidden>
       <p id="review-status" class="data-note" role="status"></p>
@@ -205,6 +215,7 @@
 <script src="vendor/polygon-clipping.js"></script>
 <script src="archive-case.js"></script>
 <script src="street-review.js"></script>
+<script src="district-controls.js"></script>
 <script src="terraheat-mapbox.js"></script>
 </body>
 </html>
