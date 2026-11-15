@@ -1,5 +1,5 @@
 import { analyzeArea, validBounds } from "./analysis.mjs";
-import { chat } from "./assistant.mjs";
+import { chat, narrate } from "./assistant.mjs";
 import { analyzePopulation, analyzeShade, analyzeStation } from "./event-analysis.mjs";
 import { analyzeArchive, archiveChat, compareStreet } from "./case-analysis.mjs";
 import { analyzeCityStreet } from "./city-street.mjs";
@@ -91,6 +91,7 @@ async function handleApi(request, url, env) {
   }
   async function run(progress) {
     try {
+      if (url.pathname === "/api/chat" && body.narrate) return await narrate(body, env);
       if (Object.hasOwn(body, "archiveCase")) {
         const { region, event } = body.archiveCase ?? {};
         if (region === "London" && ["E3_2022-07", "london-detail"].includes(event) &&

@@ -194,12 +194,25 @@ function localIntent(message, context) {
   return { action: "clarify" };
 }
 
+async function geminiPost(endpoint, body, key, timeout) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": key },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeout),
+      });
+    } catch (error) {
+      // A stale proxy connection shows up as a timeout; one retry usually clears it.
+      if (attempt >= 1) throw error;
+    }
+  }
+}
+
 async function modelIntent(message, context, key, model) {
   const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent";
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-goog-api-key": key },
-    body: JSON.stringify({
+  const response = await geminiPost(endpoint, {
       systemInstruction: { parts: [{ text: instructions }] },
       contents: [{ role: "user", parts: [{ text: JSON.stringify({ message, ...context }) }] }],
       tools: [{
@@ -222,17 +235,18 @@ async function modelIntent(message, context, key, model) {
               rank: { type: "BOOLEAN" },
               rankOrder: { type: "STRING", enum: ["asc", "desc"] },
               event: { type: "STRING", enum: eventIds },
+              region: { type: "STRING", enum: Object.keys(regions) },
               firstRegion: { type: "STRING", enum: Object.keys(regions) },
               secondRegion: { type: "STRING", enum: Object.keys(regions) },
+              date: { type: "STRING", description: "UTC date as YYYY-MM-DD." },
+              time: { type: "STRING", description: "UTC time as HH:MM." },
             },
             required: ["action"],
           },
         }],
       }],
       toolConfig: { functionCallingConfig: { mode: "ANY", allowedFunctionNames: ["heatline_action"] } },
-    }),
-    signal: AbortSignal.timeout(8000),
-  });
+  }, key, 12000);
   if (!response.ok) throw new Error("Gemini request failed with status " + response.status);
   const result = await response.json();
   const args = result.candidates?.[0]?.content?.parts?.find(part =>
@@ -241,6 +255,8 @@ async function modelIntent(message, context, key, model) {
       (args.layer && !layers.includes(args.layer)) || (args.view && !["flat", "bars"].includes(args.view)) ||
       (args.group && !populationGroups.includes(args.group)) || (args.reference && !populationGroups.includes(args.reference)) ||
       (args.borough && !Object.hasOwn(districts, args.borough)) || (args.event && !eventIds.includes(args.event)) ||
+      (args.region && !Object.hasOwn(regions, args.region)) ||
+      (args.date && !/^\d{4}-\d{2}-\d{2}$/.test(args.date)) || (args.time && !/^\d{2}:\d{2}$/.test(args.time)) ||
       [args.firstRegion, args.secondRegion].some(region => region && !Object.hasOwn(regions, region)) ||
       (args.day != null && (!Number.isInteger(args.day) || args.day < 13 || args.day > 19))) {
     throw new Error("Gemini returned an invalid action");
@@ -304,7 +320,7 @@ function executeIntent(intent, body, progress, analyze) {
       };
       return ready(methods[body.chapter] ?? method);
     }
-    case "unavailable": return problem("unavailable", intent.reply);
+    case "unavailable": return problem("unavailable", intent.reply ?? availability);
     case "unsupported": return problem("unsupported", availability);
     default: return problem("clarify", intent.reply ?? "Try “Compare residents aged 65+”, “Rank boroughs for residents aged 65+”, “Calculate pedestrian heat in my selection” or “Compare London and Paris in 2022”.");
   }
@@ -330,24 +346,87 @@ async function chat(body, progress, env, analyze) {
   let provider = "local";
   let providerWarning;
   const fallback = localIntent(message, context);
-  let intent = fallback.strict || fallback.requireBounds ? fallback : undefined;
-  if (key && !intent) {
+  let intent;
+  // The model decides the route whenever a key is present. Selection-dependent
+  // intents stay local because the model cannot see the live map selection.
+  if (key && !fallback.requireBounds) {
     progress("Identifying the Atlas tool with Gemini…");
     try {
       intent = await modelIntent(message, context, key, model);
       provider = "gemini";
-    } catch {
+    } catch (error) {
+      console.warn("Atlas model routing failed:", error?.message ?? error);
       providerWarning = "Gemini is unavailable. Atlas is using its built-in commands.";
       progress(providerWarning);
     }
   }
-  if (!intent) {
-    progress("Matching the question to an Atlas tool…");
+  // A routed city or comparison must carry every argument the interface needs.
+  const incomplete = intent && (
+    intent.action === "open-case" && !intent.region ||
+    intent.action === "regional" && (!intent.firstRegion || !intent.secondRegion || !intent.date || !intent.time));
+  if (!intent || incomplete) {
+    if (!key) progress("Matching the question to an Atlas tool…");
     intent = fallback;
   }
   const result = await executeIntent(intent, body, progress, analyze);
   return { ...result, provider, providerWarning };
 }
 
-export { chat };
+const narrationInstruction = [
+  "Write the Atlas chat reply for a climate atlas question about surface heat or pedestrian heat.",
+  "Use only numbers that appear in the digest, and name the places and figures that answer the question.",
+  "Do not calculate differences, averages, or percentages; quote the figures as given.",
+  "Only mention coverage when the digest contains a coverage value.",
+  "Keep it to two short sentences with no greeting and no markdown.",
+  "Never explain causes, health outcomes, or policy.",
+].join(" ");
+
+const narrationLanguage = question => /[\u4e00-\u9fff]/.test(question)
+  ? "Answer in Simplified Chinese."
+  : "Answer in English.";
+
+const numbersIn = text => (text.match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
+
+function grounded(reply, digest) {
+  const allowed = numbersIn(JSON.stringify(digest));
+  return numbersIn(reply).every(value => allowed.some(candidate => Math.abs(candidate - value) < 0.05));
+}
+
+async function requestNarration(question, digest, key, model) {
+  const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent";
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-goog-api-key": key },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: narrationInstruction + " " + narrationLanguage(question) }] },
+      contents: [{ role: "user", parts: [{ text: JSON.stringify({ question, digest }) }] }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 200 },
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) throw new Error("Gemini narration failed with status " + response.status);
+  const result = await response.json();
+  const text = result.candidates?.[0]?.content?.parts?.map(part => part.text ?? "").join("").trim();
+  if (!text || text.length > 600) throw new Error("Gemini returned no usable narration");
+  return text;
+}
+
+async function narrate(body, env) {
+  const key = env.GEMINI_API_KEY?.trim();
+  const model = env.GEMINI_MODEL?.trim() || "gemini-3.1-flash-lite";
+  const question = typeof body.narrate?.question === "string" ? body.narrate.question.slice(0, 1000) : "";
+  const digest = body.narrate?.digest;
+  if (!key || !question || !digest || typeof digest !== "object" || Array.isArray(digest)) {
+    return { ok: false, reply: null };
+  }
+  try {
+    const reply = await requestNarration(question, digest, key, model);
+    if (!grounded(reply, digest)) return { ok: false, reply: null, status: "ungrounded" };
+    return { ok: true, reply };
+  } catch {
+    return { ok: false, reply: null };
+  }
+}
+
+export { chat, narrate };
 
