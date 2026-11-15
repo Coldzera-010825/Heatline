@@ -194,6 +194,7 @@ button:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visi
 
 .review-settings { margin-top: 12px; }
 .review-settings p { margin: 0; }
+.review-settings #review-focus-note { margin-bottom: 7px; }
 #review-workspace { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 8px; }
 #review-workspace h2 { font-size: 21px; margin: 10px 0 6px; }
 #review-workspace h3 { font-size: 14px; margin: 9px 0 5px; }
@@ -227,7 +228,8 @@ button:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visi
   background: linear-gradient(90deg, #44397c, #9a4c82, #e56d62, #f3a360, #fff1a4);
 }
 .review-map-ramp[data-mode="reduction"] { background: linear-gradient(90deg, #dc785a, #827878, #a3dbbd, #e4ffce); }
-.review-map-tools small { display: block; margin: 4px auto; }
+.review-map-tools small:not([hidden]) { display: block; margin: 4px auto; }
+#review-map-coverage { max-width: 42ch; font-size: 11px; }
 .review-map-tools button { pointer-events: auto; }
 .review-views { justify-content: center; flex-wrap: wrap; }
 .review-map-tools #review-street-toggle { margin-top: 5px; padding: 4px 7px; font-size: 11px; }

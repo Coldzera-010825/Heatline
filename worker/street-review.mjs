@@ -8,15 +8,51 @@ import { evaluateStreetGrid } from "./utci.mjs";
 
 const detailLimit = 6000;
 const groups = {
-  all: ["All pedestrians", "Check where people walk, wait or queue and how long they remain there."],
-  older: ["Older adults", "Check where older adults wait or rest and whether the shaded approach and seating are accessible."],
-  children: ["Children", "Check where children and carers wait near entrances and crossings at the relevant time."],
-  limited: ["People with limited mobility", "Check step-free access, crossing delays, walking space and seating at the actual waiting location."],
+  all: ["All walking routes", "Check where people walk, wait or queue and how long they remain there."],
+  older: ["Residents aged 65+", "Check where older adults wait or rest and whether the shaded approach and seating are accessible."],
+  children: ["Residents aged 0–14", "Check where children and carers wait near entrances and crossings at the relevant time."],
+  limited: ["Residents with limited daily activities", "Check step-free access, crossing delays, walking space and seating at the actual waiting location."],
 };
 const round = (n, digits = 2) => Number(n.toFixed(digits));
 const problem = (status, reply, missing) => ({ ok: false, status, reply, ...(missing ? { missing } : {}) });
 const inside = (lon, lat, b) => lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3];
 const id = (lon, lat) => `${lon},${lat}`;
+const rankOrder = (a, b) => (b.priority?.score ?? 0) - (a.priority?.score ?? 0) ||
+  b.baseline - a.baseline || b.sunM - a.sunM || a.id.localeCompare(b.id);
+
+async function censusFor(meta, focus, read) {
+  if (focus === "all") return null;
+  const [packed, areas] = await Promise.all([
+    read(meta.file + ".bin", "packed-index"), read(meta.file + "-areas.bin", "packed-json"),
+  ]);
+  return { cells: new Int32Array(packed), areas, column: 2 + meta.groups.indexOf(focus),
+    source: meta.source, year: meta.year, unit: meta.unit };
+}
+
+function fieldPriority(census, row) {
+  if (!census) return null;
+  const [lon, lat, utci, length, , [sun]] = row;
+  const x = Math.round(lon * 1e7), y = Math.round(lat * 1e7);
+  const { cells } = census;
+  let left = 0, right = cells.length / 3 - 1;
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2);
+    const i = mid * 3;
+    const difference = x - cells[i] || y - cells[i + 1];
+    if (difference < 0) right = mid - 1;
+    else if (difference > 0) left = mid + 1;
+    else {
+      const area = census.areas[cells[i + 2]];
+      const [areaId, residents] = area;
+      const count = area[census.column];
+      if (count == null) return null;
+      const share = count / residents;
+      const heat = Math.max(0, Math.min(1, (utci - 32) / (46 - 32)));
+      return { score: 100 * heat * (sun / length) * share, areaId, count, residents, share };
+    }
+  }
+  return null;
+}
 
 async function gridFor(model, selection, progress, read) {
   if (model.shards) return evaluateCityStreet(model, selection, true, detailLimit, progress, read, true);
@@ -26,14 +62,15 @@ async function gridFor(model, selection, progress, read) {
   return evaluateStreetGrid(grid, model.weather, (lon, lat) => inside(lon, lat, selection) && footprint(lon, lat), true);
 }
 
-function inspect(row, pair, percent) {
+function inspect(row, pair, percent, priority) {
   const [lon, lat, baseline, total, , lengths] = row;
   const [sun, building, canopy, partial] = lengths;
   const change = pair ? shadeHeatReduction(pair[3], pair[6], pair[7], percent) / total : null;
   return { id: id(lon, lat), coordinates: [lon, lat], baseline, totalM: round(total, 1), sunM: round(sun, 1),
     buildingShadeM: round(building, 1), canopyShadeM: round(canopy, 1), partialShadeM: round(partial, 1),
-    sunShare: sun / total, scenario: change == null ? null : round(baseline - change),
-    reduction: change == null ? null : round(change) };
+    sunShare: sun / total, scenario: change == null ? baseline : round(baseline - change),
+    reduction: change == null ? null : round(change),
+    priority: priority ? { ...priority, score: round(priority.score, 6) } : null };
 }
 
 function nearest(rows, point, latitude) {
@@ -48,14 +85,15 @@ function nearest(rows, point, latitude) {
   return distance <= .00065 ? best : undefined;
 }
 
-function summarize(rows, paired, percent, latitude) {
+function summarize(rows, paired, percent, latitude, census) {
   const detail = rows.length <= detailLimit;
   const dy = 500 / 111195, dx = dy / Math.max(.15, Math.cos(latitude * Math.PI / 180));
   const cells = [], coarse = new Map(), candidates = [];
-  let total = 0, baseline = 0, sun = 0, matched = 0, matchedHeat = 0, change = 0;
+  let total = 0, baseline = 0, sun = 0, matched = 0, matchedHeat = 0, change = 0, censusLength = 0;
   for (const row of rows) {
     const [lon, lat, value, length, ring, shadeLengths] = row;
     const pair = paired.get(id(lon, lat));
+    const priority = fieldPriority(census, row);
     const reduction = pair ? shadeHeatReduction(pair[3], pair[6], pair[7], percent) : 0;
     const heat = value * length;
     total += length;
@@ -63,27 +101,37 @@ function summarize(rows, paired, percent, latitude) {
     sun += shadeLengths[0];
     change += reduction;
     if (pair) { matched += length; matchedHeat += heat; }
-    if (shadeLengths[0] > 0 && (candidates.length < 5 || value >= candidates.at(-1).baseline)) {
-      candidates.push(inspect(row, pair, percent));
-      candidates.sort((a, b) => b.baseline - a.baseline || b.sunM - a.sunM || a.id.localeCompare(b.id));
+    if (priority) censusLength += length;
+    const score = priority?.score ?? null;
+    const rank = census ? score ?? 0 : value;
+    const last = candidates.at(-1);
+    if (shadeLengths[0] > 0 && (!census || rank > 0) && (candidates.length < 5 || rank >= (census ? last.priority.score : last.baseline))) {
+      const item = inspect(row, pair, percent, priority);
+      const previous = priority ? candidates.findIndex(other => other.priority.areaId === priority.areaId) : -1;
+      if (previous === -1) candidates.push(item);
+      else if (rankOrder(item, candidates[previous]) < 0) candidates[previous] = item;
+      candidates.sort(rankOrder);
       if (candidates.length > 5) candidates.pop();
     }
     if (detail) {
-      cells.push([lon, lat, value, pair ? round((heat - reduction) / length) : null, pair ? round(reduction / length) : null, ring]);
+      cells.push([lon, lat, value, pair ? round((heat - reduction) / length) : value,
+        pair ? round(reduction / length) : null, ring, Number(Boolean(pair)), score == null ? null : round(score, 4)]);
     } else {
       const x = Math.floor(lon / dx), y = Math.floor(lat / dy);
       const key = x + ":" + y;
-      const group = coarse.get(key) ?? [x, y, 0, 0, 0, 0];
+      const group = coarse.get(key) ?? [x, y, 0, 0, 0, 0, null];
       group[2] += heat;
       group[3] += length;
       group[4] += reduction;
       if (pair) group[5] += length;
+      if (score != null) group[6] = Math.max(group[6] ?? 0, score);
       coarse.set(key, group);
     }
   }
   const grid = detail ? { metres: 100, cells } : {
-    metres: 500, step: [dx, dy], cells: [...coarse.values()].map(([x, y, heat, length, delta, coverage]) =>
-      [x, y, round(heat / length), coverage ? round((heat - delta) / length) : null, coverage ? round(delta / length) : null]),
+    metres: 500, step: [dx, dy], cells: [...coarse.values()].map(([x, y, heat, length, delta, coverage, score]) =>
+      [x, y, round(heat / length), round((heat - delta) / length), coverage ? round(delta / length) : null,
+        null, round(coverage / length, 5), score == null ? null : round(score, 4)]),
   };
   return {
     grid, candidates, cellCount: rows.length, pathM: round(total, 1), sunM: round(sun, 1), sunShare: sun / total,
@@ -92,6 +140,7 @@ function summarize(rows, paired, percent, latitude) {
     pairedShare: matched / total,
     pairedBaseline: matched ? round(matchedHeat / matched) : null,
     pairedScenario: matched ? round((matchedHeat - change) / matched) : null,
+    censusShare: census ? censusLength / total : null,
   };
 }
 
@@ -126,6 +175,10 @@ export async function analyzeStreetReview(body, progress, read) {
   if (!Number.isFinite(percent) || percent < 0 || percent > 100) return problem("clarify", "Use a shade percentage from 0 to 100.");
   const focus = typeof body.focus === "string" && Object.hasOwn(groups, body.focus) ? body.focus : "all";
   const [group, siteCheck] = groups[focus];
+  if (focus !== "all" && !city.reviewCensus?.groups.includes(focus)) {
+    return problem("unavailable", `${city.name} needs small-area census data for ${group.toLowerCase()} to rank field priorities.`,
+      ["matched census group data"]);
+  }
   const point = body.point;
   let bounds = selection;
   if (point != null) {
@@ -138,16 +191,16 @@ export async function analyzeStreetReview(body, progress, read) {
     bounds = intersection(selection, around);
   }
   progress("Checking model time, terrain and walking-network coverage…");
-  const grid = await gridFor(model, bounds, progress, read);
+  const [grid, census] = await Promise.all([gridFor(model, bounds, progress, read), censusFor(city.reviewCensus, focus, read)]);
   if (!grid.rows.length) return problem("empty", "No valid walking cells in this selection. Move the area onto a covered route.");
   const pairs = new Map(grid.pairs.map(pair => [id(pair[0], pair[1]), pair]));
   if (point) {
     const row = nearest(grid.rows, point, point[1]);
     if (!row) return problem("empty", "No modelled 100 m walking cell at this location.");
-    return { ok: true, cell: inspect(row, pairs.get(id(row[0], row[1])), percent), timeUtc: model.timeUtc };
+    return { ok: true, cell: inspect(row, pairs.get(id(row[0], row[1])), percent, fieldPriority(census, row)), timeUtc: model.timeUtc };
   }
   progress("Calculating baseline and paired shade across the selected walking network…");
-  const result = summarize(grid.rows, pairs, percent, city.center[1]);
+  const result = summarize(grid.rows, pairs, percent, city.center[1], census);
   const streets = await streetManifest(region, event, model.timeUtc, read);
   const checks = [siteCheck, "Verify the actual sun and shade at the study time, including shade access and any detour.",
     "Confirm clear walking width, access rights, utilities and site safety before investigating an intervention."];
@@ -156,6 +209,7 @@ export async function analyzeStreetReview(body, progress, read) {
       `The baseline length-weighted UTCI is ${result.baseline.toFixed(2)}°C. ` +
       (result.pairedCells ? `${(result.pairedShare * 100).toFixed(1)}% of this walking length has valid sun and building-shade pairs.` : "This selection has baseline UTCI and needs paired sun and building-shade input for a scenario."),
     review: { ...result, region, event, focus, group, checks, recommendation, label: model.label, source: model.source, engine: model.engine,
+      census: census ? { year: census.year, source: census.source, unit: census.unit } : null,
       timeUtc: model.timeUtc, scope: model.scope ?? "pilot", bounds: selection, shadePercent: percent,
       streets: streets ? { terrainM: streets.terrainM, osmSnapshots: streets.osmSnapshots, source: streets.source,
         routeParts: streets.routeParts, rasterTiles: streets.rasterTiles } : null } };

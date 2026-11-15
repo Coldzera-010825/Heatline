@@ -81,6 +81,7 @@
   const reviewModel = () => cityStreetModel() ?? adminCatalog?.streetModels?.[caseRegion]?.[caseEvent];
   const review = window.HEATLINE_REVIEW.create({
     map, active: reviewing, canInspect: () => ready && !busy && !drawing && !caseLoading,
+    census: () => adminCatalog?.cities?.[caseRegion]?.reviewCensus,
     context: () => ({ archiveCase: { region: caseRegion, event: caseEvent }, bounds: area()?.bounds,
       shadePercent: Number($("shade-percent").value), clip: archiveState?.clip ?? detailedClip }),
     request: (body, onProgress = () => {}) => receive("/api/analysis", { ...body, clip: undefined, mapFormat: "compact" }, onProgress),
@@ -2392,7 +2393,10 @@
   async function performReview(question, turn) {
     if (!area()?.chosen) selectArea(undefined);
     const focus = /older|elderly|老年|老人/i.test(question) ? "older" : /child|儿?童|小孩/i.test(question) ? "children" :
-      /mobility|行动不便|行动受限/i.test(question) ? "limited" : null;
+      /mobility|limited (?:day-to-day|daily) activities|disab|行动不便|行动受限|活动受限|残疾/i.test(question) ? "limited" : null;
+    if (focus && $("review-focus").querySelector(`[value="${focus}"]`).disabled) {
+      return writeReply(turn, "This city needs small-area census data for the requested group. You can still review the heat and shade across all walking routes.");
+    }
     if (focus && $("review-focus").value !== focus) {
       $("review-focus").value = focus;
       $("review-focus").onchange();

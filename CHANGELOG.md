@@ -1,5 +1,11 @@
 # Heatline changelog
 
+## v22 — Shade coverage and census-informed field priorities
+
+- Show the full modelled walking area on the Act 5 scenario map. Dimmed cells carry forward baseline UTCI. The reduction map identifies cells that lack a valid pair.
+- Rank field visits in Greater London using 2021 Census resident shares for ages 65+, ages 0–14 and residents with limited daily activities. Show the scores and population counts in the review, map and briefing.
+- Check the census match before offering group priorities. The same walking heat and shade review works for cities whose small-area census input is pending.
+
 ## v21 — Field review of modelled heat and shade
 
 - Add Review & Advise to the single-city workflow, with Act 4 scope and shade assumptions, 100 m grid evidence, Atlas field checks and an exportable briefing.
