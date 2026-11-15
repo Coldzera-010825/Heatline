@@ -242,3 +242,39 @@ assert.equal(oldLink.analysis.cellCount, outsideDeBilt.analysis.cellCount);
 const wrongUtrechtDay = await api({ archiveCase: archiveCase("Utrecht"), kind: "exposure", coverage: "city", date: "2022-07-19" });
 assert.equal(wrongUtrechtDay.status, "unavailable");
 console.log("Administrative masks, event matching, population and street analysis passed.");
+
+const reviewBounds = [-.130, 51.513, -.122, 51.519];
+const reviewInput = { archiveCase: londonFull, bounds: reviewBounds, shadePercent: 25 };
+const fieldReview = await api({ ...reviewInput, kind: "review", focus: "older" });
+const pairCheck = await api({ ...reviewInput, coverage: "city", kind: "shade" });
+assert(fieldReview.ok && pairCheck.ok);
+assert.equal(fieldReview.review.grid.metres, 100);
+assert.equal(fieldReview.review.timeUtc, "2022-07-18T10:52:15Z");
+assert.equal(fieldReview.review.group, "Older adults");
+assert.equal(fieldReview.review.pairedCells, pairCheck.event.pairedCells);
+close(fieldReview.review.baseline, pairCheck.event.selection.before, .01);
+close(fieldReview.review.reduction, pairCheck.event.selection.reduction, .01);
+const firstReviewCell = fieldReview.review.candidates[0];
+const checkedLocation = await api({ ...reviewInput, kind: "review", point: firstReviewCell.coordinates });
+assert.deepEqual(checkedLocation.cell, firstReviewCell);
+const noConversion = await api({ ...reviewInput, kind: "review", shadePercent: 0 });
+assert.equal(noConversion.review.scenario, noConversion.review.baseline);
+assert.equal(noConversion.review.reduction, 0);
+
+const fullReview = await api({ archiveCase: londonFull, kind: "review" });
+assert.equal(fullReview.review.cellCount, 129280);
+assert.equal(fullReview.review.grid.metres, 500);
+assert.equal(fullReview.review.streets.rasterTiles, 514);
+assert(fullReview.review.streets.routeParts > 400000);
+const streetReview = await api({ ...reviewInput, kind: "review-streets", viewport: reviewBounds });
+assert(streetReview.ok && streetReview.streets.features.length > 100);
+assert(streetReview.streets.features.every(feature => /^\d+$/.test(feature.properties.osmWayId) &&
+  feature.properties.lengthM > 0 && feature.geometry.coordinates.every(([lon, lat]) => select(reviewBounds, lon, lat))));
+assert(new Set(streetReview.streets.features.map(feature => feature.id)).size === streetReview.streets.features.length);
+
+const utrechtReview = await api({ archiveCase: archiveCase("Utrecht"), kind: "review" });
+assert.equal(utrechtReview.review.cellCount, 46814);
+assert.equal(utrechtReview.review.streets, null);
+assert.match((await api({ archiveCase: archiveCase("Utrecht"), kind: "review-streets", viewport: [5.105, 52.084, 5.11, 52.089] })).reply, /georeferenced shade split/);
+assert.equal((await api({ ...reviewInput, kind: "review", date: "2022-07-19" })).status, "unavailable");
+console.log("Greater London and Utrecht street review, scenario, coverage and clipped geometry passed.");

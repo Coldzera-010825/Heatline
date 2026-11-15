@@ -207,20 +207,13 @@ def routes_in_core(roads, core, x, y):
     return xy[keep], weights[keep]
 
 
-def run_tile(args, x, y, boundary, roads, buildings, events, to_geo):
-    core = box(x, y, x + CORE, y + CORE).intersection(boundary)
-    xy, weights = routes_in_core(roads, core, x, y)
-    if not len(weights):
-        return {name: (None, 0, 0, 0., 0.) for name in events}
-    candidate_length = float(weights.sum())
-    left, bottom, right, top = x - BUFFER, y - BUFFER, x + CORE + BUFFER, y + CORE + BUFFER
-    limits = left, bottom, right, top
-    r, c = np.floor((top - xy[:, 1]) / PIXEL).astype(int), np.floor((xy[:, 0] - left) / PIXEL).astype(int)
+def tile_surface(args, limits, buildings):
+    left, bottom, right, top = limits
     dem, dsm = [tile_raster(args, field, limits) for field in ("dtm", "dsm")]
     supported = np.isfinite(dem) & np.isfinite(dsm)
     usable_terrain = np.isfinite(dem)
     if not supported.any():
-        return {name: (None, len(weights), len(weights), candidate_length, candidate_length) for name in events}
+        return None
     around = box(*limits)
     geoms = buildings.geometries[buildings.query(around, predicate="intersects")]
     geoms = geoms[~shapely.is_empty(geoms)]
@@ -230,15 +223,33 @@ def run_tile(args, x, y, boundary, roads, buildings, events, to_geo):
         distance, (iy, ix) = distance_transform_edt(~usable_terrain, return_indices=True)
         dem = dem[iy, ix]
         supported = np.isfinite(dsm) & (distance <= 10)
+    height = np.maximum(np.where(np.isfinite(dsm), dsm - dem, 0), 0)
+    canopy = np.where(~building & (height >= 2) & (height <= 30), height, 0)
+    return dem, dem + np.where(building, height, 0), canopy, supported, building
+
+
+def shade_classes(shadow, bare):
+    return np.select([shadow >= .8, bare < .5, shadow < .5], [0, 1, 2], default=3)
+
+
+def run_tile(args, x, y, boundary, roads, buildings, events, to_geo):
+    core = box(x, y, x + CORE, y + CORE).intersection(boundary)
+    xy, weights = routes_in_core(roads, core, x, y)
+    if not len(weights):
+        return {name: (None, 0, 0, 0., 0.) for name in events}
+    candidate_length = float(weights.sum())
+    left, bottom, right, top = x - BUFFER, y - BUFFER, x + CORE + BUFFER, y + CORE + BUFFER
+    r, c = np.floor((top - xy[:, 1]) / PIXEL).astype(int), np.floor((xy[:, 0] - left) / PIXEL).astype(int)
+    terrain = tile_surface(args, (left, bottom, right, top), buildings)
+    if terrain is None:
+        return {name: (None, len(weights), len(weights), candidate_length, candidate_length) for name in events}
+    dem, dsm, canopy, supported, building = terrain
     missing = int((~supported[r, c]).sum())
     missing_length = float(weights[~supported[r, c]].sum())
     good = supported[r, c] & ~building[r, c]
     if not good.any():
         return {name: (None, len(weights), missing, candidate_length, missing_length) for name in events}
     xy, weights, r, c = xy[good], weights[good], r[good], c[good]
-    height = np.maximum(np.where(np.isfinite(dsm), dsm - dem, 0), 0)
-    dsm = dem + np.where(building, height, 0)
-    canopy = np.where(~building & (height >= 2) & (height <= 30), height, 0)
     cx, cy = x + CORE / 2, y + CORE / 2
     lon, lat = to_geo.transform(cx, cy)
     location = solweig.Location(latitude=lat, longitude=lon, utc_offset=0)
@@ -270,7 +281,7 @@ def pack_routes(data, weather, *, weights, xy, bounds, to_geo, samples, candidat
     xy, weights, radiant, shadow, bare, reference = [v[valid] for v in (xy, weights, radiant, shadow, bare, reference)]
     if not len(weights):
         return None, samples, missing, candidate_length, missing_length
-    shade = np.select([shadow >= .8, bare < .5, shadow < .5], [0, 1, 2], default=3)
+    shade = shade_classes(shadow, bare)
     # Stable group order keeps each cell independent of catalogue or viewport ordering.
     e, n = np.floor(xy / GRID).astype(int).T
     order = np.lexsort((n, e))

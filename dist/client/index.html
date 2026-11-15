@@ -107,6 +107,14 @@
         <input id="shade-percent" type="range" min="0" max="100" step="any" value="25">
         <p>Apply each paired cell’s building-shade UTCI to that share of sunlit walking length. Event weather and other routes stay fixed.</p>
       </div>
+      <div id="review-settings" class="data-controls review-settings" hidden>
+        <label for="review-focus">People to consider on site</label>
+        <select id="review-focus">
+          <option value="all">All pedestrians</option><option value="older">Older adults</option>
+          <option value="children">Children</option><option value="limited">People with limited mobility</option>
+        </select>
+        <p id="review-context" class="data-note"></p>
+      </div>
       <button type="button" id="run-analysis" class="run-analysis"><span id="run-label"></span><span aria-hidden="true">↗</span></button>
       <button type="button" id="archive-groups" class="secondary-action" hidden>Run population exposure</button>
     </section>
@@ -126,6 +134,13 @@
     <div id="analysis-progress" class="analysis-progress" role="status" hidden><span aria-hidden="true"></span><p></p></div>
     <p id="analysis-notice" class="analysis-notice" role="status" hidden></p>
     <section id="analysis-result" class="analysis-result" aria-label="Analysis result" hidden></section>
+    <section id="review-workspace" aria-label="Street review results" hidden>
+      <p id="review-status" class="data-note" role="status"></p>
+      <div id="review-summary"></div>
+      <div id="review-location"></div>
+      <div id="review-candidates"></div>
+      <button type="button" id="review-report" class="secondary-action" disabled>Preview briefing ↗</button>
+    </section>
     <div id="actions" class="actions"></div>
     <details id="method"><summary>Data and method</summary><p id="method-copy"></p><a id="method-link" class="method-link" href="methods.html">See Details Here</a></details>
   </div>
@@ -153,9 +168,32 @@
     <button type="button" id="view-bars" aria-pressed="false">3D bars</button>
   </div>
 </div>
+<div id="review-map-tools" class="atlas-legend review-map-tools" aria-label="Street review map controls" hidden>
+  <b id="review-map-label"></b>
+  <div id="review-map-ramp" class="review-map-ramp"></div>
+  <small id="review-map-caption"></small>
+  <div class="view-toggle review-views" role="group" aria-label="Review map layers">
+    <button type="button" data-review-layer="baseline" aria-pressed="true">Baseline UTCI</button>
+    <button type="button" data-review-layer="scenario" aria-pressed="false">Shade scenario</button>
+    <button type="button" data-review-layer="reduction" aria-pressed="false">ΔUTCI</button>
+  </div>
+  <button type="button" id="review-street-toggle" class="secondary-action" aria-pressed="false">Street shade</button>
+  <small id="review-map-status" role="status" hidden></small>
+</div>
 <nav id="chapter-nav" class="atlas-nav" aria-label="Story chapters" hidden></nav>
 <div id="layer-credit" class="layer-credit"></div>
 </main>
+<dialog id="review-briefing" class="review-briefing" aria-labelledby="review-briefing-title">
+  <header>
+    <h2 id="review-briefing-title">Heatline field review</h2>
+    <div class="area-controls">
+      <button type="button" id="review-download">Download HTML</button>
+      <button type="button" id="review-print">Print / save PDF</button>
+      <form method="dialog"><button aria-label="Close briefing">Close</button></form>
+    </div>
+  </header>
+  <div id="review-briefing-content"></div>
+</dialog>
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.33.0/mapbox-gl.js"></script>
 <script src="mapbox-token.js"></script>
 <script src="street-grid.js"></script>
@@ -163,6 +201,7 @@
 <script src="atlas-results.js"></script>
 <script src="vendor/polygon-clipping.js"></script>
 <script src="archive-case.js"></script>
+<script src="street-review.js"></script>
 <script src="terraheat-mapbox.js"></script>
 </body>
 </html>

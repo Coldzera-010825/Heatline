@@ -1,5 +1,11 @@
 # Heatline changelog
 
+## v21 — Field review of modelled heat and shade
+
+- Add Review & Advise to the single-city workflow, with Act 4 scope and shade assumptions, 100 m grid evidence, Atlas field checks and an exportable briefing.
+- Recompute UTCI, coverage and the shade comparison in a shared Worker analysis for supported city cases.
+- Preserve London’s 5 m shadow rasters and ordered OSM street shade for 18 July 2022. The website loads the street geometry for the active map view.
+
 ## v18 — Research data and methods page
 
 - Add a dedicated page with official sources, downloadable study boundaries, model coverage, formulas, and literature and atlas references.

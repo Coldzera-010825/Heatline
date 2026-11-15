@@ -25,12 +25,17 @@
     ["compare", "Compare cities", "How did heat exposure differ?", "Compare residential surface heat or walking heat stress during the same historical event.",
       "Residential heat matches clear Landsat pixels to GHS-POP 2020 within the published study areas. A difference requires same-day, in-event overpasses within 90 minutes of local solar time and at least 80% population coverage in both areas. Walking heat compares same-time SOLWEIG pilots and weights 100 m cells by walking length.",
       ["Compare Paris and Amsterdam in 2020", "Compare Paris and Amsterdam walking UTCI in 2022"]],
+    ["review", "Review & advise", "Where should we check for shade?", "Review modelled heat and shade on the walking network, then prepare a briefing for a field visit.",
+      "Screen 100 m walking cells at the model time. Where street shade is available, inspect ordered 5 m samples attached to OSM ways. Carry the Act 4 shade assumption into the area comparison.",
+      ["Review this area", "What should we check on site?", "Open the briefing"]],
   ];
+  const reviewStage = chapters.findIndex(row => row[0] === "review");
+  const cityChapters = [0, 1, 2, 3, reviewStage];
   const globalChapter = ["globe", "", "July heat around the world", "Replay daily maximum air temperature over land from 13 to 19 July 2022.",
     "The globe replays daily maximum air temperature on 13–19 July 2022 as regional context. City markers open their own historical event archives. Each layer and analysis shows its actual date.",
     ["Open the Amsterdam case", "Compare Paris and Amsterdam in 2020", "Show 18 July"]];
-  const methodSections = ["weather", "residential", "street", "shade", "comparison"];
-  if (!window.mapboxgl || !window.TERRAHEAT_MAPBOX_TOKEN || !L || !R || !A || !window.polygonClipping) {
+  const methodSections = ["weather", "residential", "street", "shade", "comparison", "review"];
+  if (!window.mapboxgl || !window.TERRAHEAT_MAPBOX_TOKEN || !L || !R || !A || !window.polygonClipping || !window.HEATLINE_REVIEW) {
     $("map-status").textContent = "Mapbox could not load. Check your connection.";
     return;
   }
@@ -69,9 +74,19 @@
   const phoneLayout = matchMedia("(max-width:600px)");
   const motionPreference = matchMedia("(prefers-reduced-motion: reduce)");
   const area = () => areas.get(stage);
+  const reviewing = () => stage === reviewStage;
   const usingArchive = () => Boolean(archiveState) && stage >= 0 && stage < 4;
   const missingStreetCase = () => stage === 2 && Boolean(archiveState && !archiveState.record);
   const cityStreetModel = () => adminCatalog?.cityStreetModels?.[caseRegion]?.[caseEvent];
+  const reviewModel = () => cityStreetModel() ?? adminCatalog?.streetModels?.[caseRegion]?.[caseEvent];
+  const review = window.HEATLINE_REVIEW.create({
+    map, active: reviewing, canInspect: () => ready && !busy && !drawing && !caseLoading,
+    context: () => ({ archiveCase: { region: caseRegion, event: caseEvent }, bounds: area()?.bounds,
+      shadePercent: Number($("shade-percent").value), clip: archiveState?.clip ?? detailedClip }),
+    request: (body, onProgress = () => {}) => receive("/api/analysis", { ...body, clip: undefined, mapFormat: "compact" }, onProgress),
+    focusMap: center => move({ center, zoom: Math.max(15.4, map.getZoom()), pitch: 20, bearing: 0 }),
+    narrate: narrateResult,
+  });
   const displayedSnapshot = () => archiveState?.selected?.[1] === "lst_core_c" ? archiveState.event.coreSnapshot : archiveState?.event?.snapshot;
   const census = () => {
     const city = adminCatalog?.cities[caseRegion];
@@ -119,6 +134,7 @@
 
   function layerKey() {
     if (stage < 0) return "era5";
+    if (reviewing()) return null;
     if (stage === 4) {
       if (!regionalState) return null;
       return regionalState.metric === "street" ? (regionalState.street ? "regional-utci" : null) : "regional";
@@ -395,6 +411,7 @@
       if (stage < 0) requestAnimationFrame(spinGlobe);
       else if (!event.heatlineSpin && layerKey() !== "wow") refreshGrid();
     });
+    review.install();
     map.on("movestart", event => {
       if (stage < 0 && event.originalEvent) {
         globeRotation = false;
@@ -444,7 +461,7 @@
         if (stage !== 4) url.searchParams.delete(key);
       }
     }
-    if (stage >= 0 && stage < 4) {
+    if (cityChapters.includes(stage)) {
       url.searchParams.set("city", caseRegion);
       url.searchParams.set("event", caseEvent);
     } else if (stage !== 4) {
@@ -490,6 +507,7 @@
         secondRegion: url.searchParams.get("b") || undefined, metric: url.searchParams.get("metric") === "street" ? "street" : "surface",
         date: url.searchParams.get("date") || undefined, time: url.searchParams.get("time") || undefined,
       });
+      else if (reviewing()) openChapter(reviewStage, false, undefined, true);
       else if (["lst", "landcover"].includes(layerKey())) refreshGrid();
     }).catch(() => {
       if (deepCase) openChapter(-1, false);
@@ -544,6 +562,8 @@
       if (index !== 2) lastCase.set(region, nextEvent);
       if (changed) {
         results.clear();
+        areas.delete(reviewStage);
+        review.reset();
         for (const [chapter, selected] of [[1, true], [2, false], [3, false]]) areas.set(chapter, { chosen: selected });
         variants[1] = "residents";
         variants[3] = "scenario";
@@ -874,8 +894,8 @@
     const archiveStation = usingArchive() && spec?.type === "station";
     visible("metric-fill", grid && !archiveRaster && key !== "regional");
     visible("archive-image-layer", archiveRaster && gridKey === key);
-    visible("archive-study-line", usingArchive());
-    visible("street-model-line", stage >= 2 && stage < 4 &&
+    visible("archive-study-line", usingArchive() || reviewing() && Boolean(archiveState));
+    visible("street-model-line", reviewing() && Boolean(reviewModel()) && reviewModel().scope !== "city" || stage >= 2 && stage < 4 &&
       (usingArchive() ? Boolean(archiveState.street && !cityStreetModel()) : stage === 3 && !cityStreetModel()));
     visible("archive-station-point", archiveStation && gridKey === key);
     visible("metric-extrusion", grid && view === "bars" && Boolean(barsGrid?.features.length));
@@ -891,7 +911,7 @@
     for (const [i, slot] of ["a", "b"].entries()) visible("compare-image-" + slot + "-layer",
       key === "regional" && Boolean(regionalState.regions[i].snapshot?.summary.matched));
     updateStationBeacons(key);
-    visible("boundary-line", !usingArchive() && (stage === 0 || stage === 1 || Boolean(stage >= 2 && stage < 4 && cityStreetModel()) ||
+    visible("boundary-line", !usingArchive() && (reviewing() && !archiveState || stage === 0 || stage === 1 || Boolean(stage >= 2 && stage < 4 && cityStreetModel()) ||
       (stage === 2 && results.get(2)?.analysis?.scope === "london")));
     for (const id of ["pin", "pin-glow", "pin-name"]) visible(id, stage < 0);
     $("legend-hl").hidden = !spec;
@@ -917,9 +937,10 @@
     switcher.hidden = stage < 0 && !compactLayout.matches;
     $("show-analysis-panel").textContent = stage < 0 ? "Explore" : "Analysis";
     $("show-analysis-panel").setAttribute("aria-controls", stage < 0 ? "intro" : "analysis-panel");
-    const boundaryCredit = usingArchive() ? archiveState.admin.provenance.source :
+    const boundaryCredit = usingArchive() || reviewing() && archiveState ? archiveState.admin.provenance.source :
       stage === 4 && regionalState ? [...new Set(regionalState.regions.map(r => r.provenance.source))].join(" / ") : "";
-    $("layer-credit").textContent = [L.attr[key] ?? "© OpenStreetMap contributors", boundaryCredit && "Boundaries: " + boundaryCredit].filter(Boolean).join(" · ");
+    const dataCredit = reviewing() && reviewModel() ? reviewModel().source + " · © OpenStreetMap contributors" : L.attr[key] ?? "© OpenStreetMap contributors";
+    $("layer-credit").textContent = [dataCredit, boundaryCredit && "Boundaries: " + boundaryCredit].filter(Boolean).join(" · ");
     if (!spec) return;
     $("legend-label").textContent = spec.label;
     $("legend-ramp").hidden = $("legend-ends").hidden = !spec.colors;
@@ -1077,6 +1098,7 @@
   async function refreshGrid() {
     if (!ready) return;
     if (stage < 0) return showGlobalDay();
+    if (reviewing()) { updateVisibility(); return review.viewport(); }
     if (missingStreetCase()) { updateVisibility(); return; }
     if (usingArchive() || detailedRaster()) {
       if (usingArchive()) registerArchiveLayers();
@@ -1640,7 +1662,7 @@
     const selection = area();
     if (!selection) return;
     const place = stage === 1 ? results.get(1)?.event?.place : undefined;
-    const model = stage >= 2 && (usingArchive() ? archiveState.street : cityStreetModel());
+    const model = reviewing() ? reviewModel() : stage >= 2 && (usingArchive() ? archiveState.street : cityStreetModel());
     const fullModel = model?.scope === "city";
     const archived = usingArchive() && (stage === 1 ? archiveState.event.snapshot : archiveState.street);
     const time = archived?.datetime ?? archived?.timeUtc;
@@ -1662,6 +1684,13 @@
     const limit = usingArchive() && model && !fullModel ? "Analysis is limited to " + model.label + "." : "";
     coverage.textContent = [stage === 3 && "The scenario applies to cells with enough sunlit and building-shaded path.", limit].filter(Boolean).join(" ");
     if (!coverage.textContent) coverage.hidden = true;
+    if (reviewing()) {
+      $("area-name").textContent = selection.bounds ? "Drawn area" : model?.label ?? (adminCatalog?.cities[caseRegion]?.adminName || caseRegion);
+      if (!drawing) $("area-hint").textContent = model?.timeUtc ? model.timeUtc.replace("T", " ").replace("Z", " UTC") : "Event-hour walking model needed";
+      $("full-area").textContent = model?.scope === "city" ? "Use study area" : "Use model coverage";
+      coverage.hidden = model?.scope === "city";
+      coverage.textContent = model?.scope === "city" ? "" : "Results cover the available walking model.";
+    }
   }
 
   function setDrawing(on) {
@@ -1690,6 +1719,7 @@
   function setArea(selection, center = false) {
     if (!area()) return;
     areas.set(stage, selection);
+    if (reviewing()) review.reset("Area changed. Run AI Analyze to update the briefing.");
     results.delete(stage);
     reportAnalysis();
     clearGrid();
@@ -1704,6 +1734,7 @@
     }
     if (center && usingArchive()) frameBounds(stage >= 2 && archiveState.street ? archiveState.street.bounds : archiveState.admin.bbox,
       stage >= 2 && archiveState.street ? 15.5 : 13);
+    if (reviewing() && center && reviewModel()) frameBounds(reviewModel().bounds, 13.4, 18, 0);
   }
 
   function selectArea(bounds, center = false) {
@@ -1711,6 +1742,10 @@
   }
 
   function clearAnalysis() {
+    if (reviewing()) {
+      if (!busy && review.ready()) setArea({ chosen: true });
+      return;
+    }
     if (busy || !area() || !results.has(stage)) return;
     setArea({ chosen: false });
     $("draw-area").focus({ preventScroll: true });
@@ -1746,7 +1781,7 @@
       "comparison-station", "analyse-station", "compare-stations", "layer-select", "prompt", "enter", "globe",
       "population-group", "population-reference", "rank-boroughs", "archive-layer", "archive-model", "archive-date",
       "archive-station", "archive-station-other", "archive-period", "archive-weather", "archive-analyse-station",
-      "archive-compare-stations", "archive-groups", "archive-play", "view-mode", "intro-compare"]) $(id).disabled = busy || !ready || caseLoading;
+      "archive-compare-stations", "archive-groups", "archive-play", "view-mode", "intro-compare", "review-focus"]) $(id).disabled = busy || !ready || caseLoading;
     $("case-city").disabled = busy || !ready || caseLoading || !caseCatalog || stage === 4;
     $("case-event").disabled = busy || !ready || caseLoading || !caseCatalog || stage === 2;
     for (const id of ["regional-event", "regional-metric", "regional-first", "regional-second"]) $(id).disabled = busy || !ready || regionalLoading || !adminCatalog;
@@ -1821,9 +1856,9 @@
   function addToolCall(turn, kind, request) {
     const label = ({ station: request.comparison ? "station comparison" : "station analysis",
       population: request.rank ? "district LST ranking" : "population comparison",
-      exposure: "heat exposure analysis", shade: "shade scenario", groups: "resident group comparison", weather: "event weather analysis" })[kind];
+      exposure: "heat exposure analysis", shade: "shade scenario", groups: "resident group comparison", weather: "event weather analysis", review: "field review" })[kind];
     const stationName = id => stations.find(station => station.id === id)?.name;
-    const subject = request.archiveCase ? archiveState.city.name + " · " + (archiveState.record?.label ?? "2022") :
+    const subject = kind === "review" ? reviewModel()?.label ?? caseRegion : request.archiveCase ? archiveState.city.name + " · " + (archiveState.record?.label ?? "2022") :
       kind === "station" ? [stationName(request.station), stationName(request.comparison)].filter(Boolean).join(" + ") :
       kind === "shade" ? request.shadePercent + "% sunlit route length" :
         kind === "population" ? populationGroups[request.group] : request.bounds ? "Drawn area" : "London study area";
@@ -1842,7 +1877,13 @@
     if (!turn?.tool) return;
     turn.tool.dataset.state = success ? "complete" : "error";
     turn.tool.lastElementChild.textContent = (success ? "Completed " : "Could not complete ") + turn.toolLabel;
-    if (success) {
+    if (success && turn.stage === reviewStage) {
+      const link = R.button("Preview briefing ↗", () => {
+        if (!busy && reviewing()) review.openReport(turn.briefingId);
+      });
+      link.className = "chat-jump review-briefing-link";
+      turn.bubble.append(link);
+    } else if (success) {
       const link = R.button("View analysis ↗", () => {
         if (busy || results.get(turn.stage)?.run !== turn.run) return;
         if (stage !== turn.stage) openChapter(turn.stage);
@@ -1871,7 +1912,7 @@
     const show = Boolean(result) && (stage !== 0 || layerKey() === "wow" || usingArchive());
     const node = $("analysis-result");
     node.hidden = !show;
-    $("analysis-footer").hidden = !show || !area();
+    $("analysis-footer").hidden = reviewing() ? !review.ready() : !show || !area();
     $("station-observations").hidden = stage === 0 && show;
     for (const link of $("conversation").querySelectorAll('.chat-jump[data-stage="' + stage + '"]')) {
       if (Number(link.dataset.run) === result?.run) continue;
@@ -1935,17 +1976,18 @@
     $("archive-groups").hidden = stage !== 1 || !usingArchive() || !canCompareGroups();
     if (stage === 1) updatePopulationGroups();
     $("shade-controls").hidden = stage !== 3 || usingArchive() && !archiveState.street;
+    $("review-settings").hidden = $("review-workspace").hidden = !reviewing();
     $("regional-comparison").hidden = stage !== 4;
-    $("chapter-index").textContent = stage < 0 ? "GLOBAL CONTEXT" : stage === 4 ? "GLOBAL CITY COMPARISON" : "0" + (stage + 1) + " / 04";
+    $("chapter-index").textContent = stage < 0 ? "GLOBAL CONTEXT" : stage === 4 ? "GLOBAL CITY COMPARISON" : "0" + (cityChapters.indexOf(stage) + 1) + " / 05";
     $("chapter-title").textContent = title;
     $("chapter-copy").textContent = copy;
     $("method-copy").textContent = method;
     $("method-link").href = "methods.html#" + (methodSections[stage] ?? "weather");
     if (stage < 0) $("global-method-copy").textContent = method;
-    $("prompt").placeholder = stage === 2 ? "Ask Atlas about your selection…" : "Ask Atlas about the heatwave…";
+    $("prompt").placeholder = reviewing() || stage === 2 ? "Ask Atlas about your selection…" : "Ask Atlas about the heatwave…";
     $("layer-select").value = cityLayer;
     $("run-label").textContent = ({ 1: canCompareGroups() ? "Compare resident groups" : "Run population exposure",
-      2: "Run heat exposure analysis", 3: "Run shade scenario" })[stage] ?? "";
+      2: "Run heat exposure analysis", 3: "Run shade scenario", [reviewStage]: "AI Analyze" })[stage] ?? "";
     if (usingArchive() && stage >= 2 && !archiveState.street) $("run-label").textContent = "Check model inputs";
     $("actions").replaceChildren();
     if (stage === 0 && !usingArchive()) showWeatherReference();
@@ -1962,12 +2004,17 @@
       const counts = stage === 2 ? (model.cells ?? model.gridCells) + " modelled walking cells" : model.pairedCells + " eligible shade cells";
       $("actions").append(R.element("p", model.boundaryClipped ? model.label : counts + " · " + model.label, "data-note"));
     }
+    if (stage === 3) $("actions").append(R.button("Review walking routes ↗", () => {
+      if (!busy) openChapter(reviewStage);
+    }));
     if (key === "wow") { loadStations(); renderObservations(); }
-    for (const [index, button] of [...$("chapter-nav").children].entries()) button.setAttribute("aria-current", String(stage === index));
+    for (const [index, button] of [...$("chapter-nav").children].entries()) button.setAttribute("aria-current", String(stage === cityChapters[index]));
     areaLabel();
     setStep(results.has(stage) ? "result" : "area");
     suggestions();
     renderResult();
+    if (reviewing()) review.restore();
+    else review.paint();
     updateVisibility();
     updateGlobeRotation();
     syncLegendClearance();
@@ -1976,7 +2023,7 @@
   function openChapter(index, animate = true, regionalOptions, forceFrame = false) {
     if (!ready || index < -1 || index >= chapters.length) return;
     if (index === 2 && caseEvent !== detailedEvent) return chooseCase(caseRegion, detailedEvent, index, animate);
-    if ([0, 1, 3].includes(index) && archiveState && !archiveState.record) return chooseCase(caseRegion, undefined, index, animate);
+    if ([0, 1, 3, reviewStage].includes(index) && archiveState && !archiveState.record) return chooseCase(caseRegion, undefined, index, animate);
     const previous = stage;
     if (previous === 4 && index !== 4) {
       regionalRequest++;
@@ -1988,6 +2035,9 @@
     stopPlayback();
     stopArchivePlayback();
     stage = index;
+    if (reviewing() && (previous === 3 || !areas.has(reviewStage))) {
+      areas.set(reviewStage, { ...areas.get(3), chosen: true });
+    }
     if (stage >= 0) cancelGlobalFrame();
     $("app").classList.toggle("global-mode", index < 0);
     clearGrid();
@@ -2000,6 +2050,11 @@
     if (index === 4) {
       if (previous !== index && !regionalState) move(europe, false);
       return loadRegional(regionalOptions, animate);
+    }
+    if (reviewing()) {
+      const bounds = area()?.bounds ?? reviewModel()?.bounds ?? adminCatalog?.cities[caseRegion]?.bbox;
+      if (bounds && (previous !== index || forceFrame)) frameBounds(bounds, 15, 20, 0, animate);
+      return refreshGrid();
     }
     if (usingArchive()) {
       if (forceFrame || previous !== index) {
@@ -2334,12 +2389,46 @@
     }
   }
 
+  async function performReview(question, turn) {
+    if (!area()?.chosen) selectArea(undefined);
+    const focus = /older|elderly|老年|老人/i.test(question) ? "older" : /child|儿?童|小孩/i.test(question) ? "children" :
+      /mobility|行动不便|行动受限/i.test(question) ? "limited" : null;
+    if (focus && $("review-focus").value !== focus) {
+      $("review-focus").value = focus;
+      $("review-focus").onchange();
+    }
+    setStep("run");
+    addToolCall(turn, "review", { bounds: area()?.bounds });
+    const result = await review.analyze(question, progress);
+    if (!result) return;
+    $("analysis-progress").hidden = true;
+    $("assistant-mode").textContent = result.generated ? "Gemini" : "Built-in routing";
+    $("assistant-mode").hidden = false;
+    setStep(result.ok ? "result" : "area");
+    renderResult();
+    turn.briefingId = result.briefingId;
+    await writeReply(turn, result.text);
+    finishToolCall(turn, result.ok);
+  }
+
   function submit(text) {
     if (!ready || busy || drawing || caseLoading) return;
     appendTurn("user", text);
     const chatTurn = appendTurn("atlas");
     chatTurn.question = text;
     return withBusy(async () => {
+      if (reviewing()) {
+        if (/\b(forecast|tomorrow|current weather|deaths?|health outcomes?)\b|预报|明天|死亡|健康风险/i.test(text)) {
+          return writeReply(chatTurn, "Review & advise works with the selected historical walking model, its shade evidence and field checks.");
+        }
+        if (/\b(report|briefing|export)\b|报告|简报|导出/i.test(text)) {
+          return writeReply(chatTurn, review.openReport() ? "Opened the briefing for this completed analysis." :
+            "Run AI Analyze to prepare a briefing for the current selection.");
+        }
+        const checks = review.checks();
+        if (checks && /field|on[ -]site|verify|现场|核实/i.test(text)) return writeReply(chatTurn, checks);
+        return performReview(text, chatTurn);
+      }
       const result = await receive("/api/chat", {
         message: text, bounds: area()?.bounds, studyArea: stage === 2 && area()?.chosen === true, chapter: stage + 1,
         layer: layerKey(), station: activeStation, comparison, dispatch: true, shadePercent: Number($("shade-percent").value),
@@ -2423,9 +2512,9 @@
     }, chatTurn);
   }
 
-  for (const [i, row] of chapters.slice(0, 4).entries()) {
-    const node = R.button("", () => { selectPanel("analysis"); openChapter(i); });
-    node.append(R.element("b", "0" + (i + 1)), document.createTextNode(row[1]));
+  for (const [i, index] of cityChapters.entries()) {
+    const node = R.button("", () => { selectPanel("analysis"); openChapter(index); });
+    node.append(R.element("b", "0" + (i + 1)), document.createTextNode(chapters[index][1]));
     $("chapter-nav").append(node);
   }
   for (const key of L.londonLayers) $("layer-select").add(new Option(L.layers[key].label, key));
@@ -2450,7 +2539,7 @@
     selectPanel("analysis");
     openChapter(event.target.value === "comparison" ? 4 : 0, true, undefined, true);
   };
-  $("case-city").onchange = event => { selectPanel("analysis"); chooseCase(event.target.value, undefined, stage === 2 ? 2 : 0); };
+  $("case-city").onchange = event => { selectPanel("analysis"); chooseCase(event.target.value, undefined, stage === 2 || reviewing() ? stage : 0); };
   $("case-event").onchange = event => chooseCase(caseRegion, event.target.value, stage);
   $("archive-layer").onchange = event => chooseArchiveLayer(event.target.value);
   $("archive-model").onchange = event => {
@@ -2512,7 +2601,7 @@
     if (usingArchive()) updateArchiveControls();
     refreshGrid();
   };
-  $("run-analysis").onclick = () => withBusy(() => perform({
+  $("run-analysis").onclick = () => reviewing() ? submit("Review this area") : withBusy(() => perform({
     1: usingArchive() && canCompareGroups() ? "groups" : "population", 2: "exposure", 3: "shade",
   }[stage]));
   $("station").onchange = e => selectStation(e.target.value);

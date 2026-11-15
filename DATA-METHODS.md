@@ -85,5 +85,39 @@ UTCI and aggregates the selected area and shade scenario when requested.
 Preparing SOLWEIG radiation for a new place or time runs in Python before
 publishing, typically taking minutes for an administrative area.
 
+## Review & Advise
+
+The `review` action on `POST /api/analysis` accepts the existing `archiveCase`
+city and event, an optional selection `bounds`, the Act 4 `shadePercent` and a
+`focus` for field checks. `point` requests one modelled 100 m cell. The Worker
+calculates baseline UTCI, four shade lengths, paired coverage and the scenario
+from the case’s existing model inputs. The 500 m overview uses the same 100 m
+length weights. A city with an archived walking model can run this action
+as soon as the inputs are registered in the administrative catalog.
+
+The old city exports grouped route samples by cell, shade class and mean
+radiant temperature. SOLWEIG shadow rasters were written to temporary tile
+directories and cleared after sampling. The original terrain, weather and OSM
+inputs are sufficient to reproduce the shadow evidence.
+
+For linework, run `prepare-street-review.py --help`. Supply the registered
+city, event, exact UTC model time, metric CRS and study polygon together with
+the original hourly weather, OSM PBF extracts and aligned 5 m terrain/surface
+inputs. Use `--lidar` for the named mosaicking tiles used by London or `--dtm`
+and `--dsm` for co-registered mosaics. Point `--out` at
+`dist/client/data/admin/street-review/<city>/<event>` and `--rasters` at a
+persistent raw-output directory. The local output preserves paired, georeferenced
+5 m shade bands, timestamps and per-tile restart records. The web manifest and
+its compressed OSM line records provide ordered shade runs, with way IDs and
+street names where available. Keep the local raster directory and use a fresh
+pair of output directories when the sources or area change.
+
+The `review-streets` action reads the event’s matching line inputs, clips shade
+runs to the analysis area and returns actual line geometry and lengths in the
+viewport. When those inputs are missing, grid review remains available. London’s
+full study area uses the 18 July 2022 10:52:15 UTC model time and the 5 November
+2026 OSM snapshot. The street layer represents candidate walking centre-lines at
+approximately 5 m sampling, with field checks for position, use and site conditions.
+
 Use `npm run build` and `node verify-local.mjs` to verify the archive, time
 matching, area selection, and UTCI agreement with the SOLWEIG reference.
