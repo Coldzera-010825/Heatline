@@ -1,4 +1,5 @@
 import { fileLimitMiB, groupFields, models, roles, sampleFields } from "./workspace-contract.js";
+import { isPlatformQuestion } from "./atlas-question.js";
 
 const $ = id => document.getElementById(id);
 const apiRoot = "/api/workspace";
@@ -473,6 +474,16 @@ async function explain(question) {
   atlasTurn(data.reply);
 }
 
+async function explainMethod(message) {
+  const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }) });
+  if (!response.ok) throw new Error("The methods answer is unavailable.");
+  const info = await response.json();
+  if (!info.ok) throw new Error(info.reply || "The methods answer is unavailable.");
+  $("atlas-mode").textContent = info.provider === "gemini" ? "Gemini" : "Methods";
+  atlasTurn(info.reply);
+}
+
 function runBody() {
   const kind = state.model;
   const files = Object.fromEntries(models[kind].inputs.map(role => [role, fileFor(role)?.id]));
@@ -600,10 +611,12 @@ for (const button of $("result-view").querySelectorAll("button")) button.onclick
 $("atlas-form").onsubmit = async event => {
   event.preventDefault();
   const q = $("atlas-question").value.trim();
-  if (!q || state.busy || !state.study) return;
+  if (!q || state.busy) return;
   $("atlas-question").value = "";
   atlasTurn(q, true);
   try {
+    if (isPlatformQuestion(q)) { await explainMethod(q); return; }
+    if (!state.study) { atlasTurn("Create or open a study before running a calculation."); return; }
     const investigate = /\b(explain|meaning|coverage|why|how much|what does)\b|解释|说明|覆盖率|为什么|结果怎么样/i.test(q);
     const go = /\b(run|analy[sz]e|calculate|compute|simulate|show)\b|运行|计算|分析|模拟|查看/i.test(q);
     if (investigate && !go) { await explain(q); return; }

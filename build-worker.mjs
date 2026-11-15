@@ -12,15 +12,16 @@ const adminCatalog = path.join(project, "dist", "client", "data", "admin");
 writeFileSync(path.join(adminCatalog, "catalog.bin"), gzipSync(readFileSync(path.join(adminCatalog, "catalog.json"))));
 
 mkdirSync(server, { recursive: true });
-for (const file of ["analysis.mjs", "assistant.mjs", "event-analysis.mjs", "london-population.mjs", "case-analysis.mjs",
+for (const file of ["analysis.mjs", "event-analysis.mjs", "london-population.mjs", "case-analysis.mjs",
   "utci.mjs", "utci-coefficients.mjs", "request-time.mjs", "residential-map.mjs", "city-street.mjs", "study-boundary.mjs",
   "street-review.mjs", "review-streets.mjs"]) {
   copyFileSync(path.join(project, "worker", file), path.join(server, file));
 }
 copyFileSync(path.join(project, "worker", "index.mjs"), path.join(server, "index.js"));
 await build({
-  entryPoints: [path.join(project, "worker", "workspace.mjs")],
-  outfile: path.join(server, "workspace.mjs"),
+  entryPoints: [path.join(project, "worker", "assistant.mjs"), path.join(project, "worker", "workspace.mjs")],
+  outdir: server,
+  outExtension: { ".js": ".mjs" },
   bundle: true, format: "esm", platform: "browser", target: "es2023",
 });
 writeFileSync(path.join(server, "wrangler.json"), JSON.stringify({

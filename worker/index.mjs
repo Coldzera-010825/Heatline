@@ -1,5 +1,5 @@
 import { analyzeArea, validBounds } from "./analysis.mjs";
-import { chat, narrate } from "./assistant.mjs";
+import { chat, narrate, isPlatformQuestion } from "./assistant.mjs";
 import { analyzePopulation, analyzeShade, analyzeStation } from "./event-analysis.mjs";
 import { analyzeArchive, archiveChat, compareStreet } from "./case-analysis.mjs";
 import { analyzeCityStreet } from "./city-street.mjs";
@@ -94,6 +94,9 @@ async function handleApi(request, url, env) {
   async function run(progress) {
     try {
       if (url.pathname === "/api/chat" && body.narrate) return await narrate(body, env);
+      if (url.pathname === "/api/chat" && typeof body.message === "string" && isPlatformQuestion(body.message)) {
+        return await chat(body, progress, env, analyze);
+      }
       if (url.pathname === "/api/analysis" && (body.kind === "review" || body.kind === "review-streets")) {
         return await analyzeStreetReview(body, progress, readAdmin);
       }
