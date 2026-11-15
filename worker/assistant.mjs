@@ -394,16 +394,11 @@ function grounded(reply, digest) {
 
 async function requestNarration(question, digest, key, model) {
   const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent";
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-goog-api-key": key },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: narrationInstruction + " " + narrationLanguage(question) }] },
-      contents: [{ role: "user", parts: [{ text: JSON.stringify({ question, digest }) }] }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 200 },
-    }),
-    signal: AbortSignal.timeout(15000),
-  });
+  const response = await geminiPost(endpoint, {
+    systemInstruction: { parts: [{ text: narrationInstruction + " " + narrationLanguage(question) }] },
+    contents: [{ role: "user", parts: [{ text: JSON.stringify({ question, digest }) }] }],
+    generationConfig: { temperature: 0.2, maxOutputTokens: 200 },
+  }, key, 15000);
   if (!response.ok) throw new Error("Gemini narration failed with status " + response.status);
   const result = await response.json();
   const text = result.candidates?.[0]?.content?.parts?.map(part => part.text ?? "").join("").trim();
@@ -423,7 +418,8 @@ async function narrate(body, env) {
     const reply = await requestNarration(question, digest, key, model);
     if (!grounded(reply, digest)) return { ok: false, reply: null, status: "ungrounded" };
     return { ok: true, reply };
-  } catch {
+  } catch (error) {
+    console.warn("Atlas model narration failed:", error?.message ?? error);
     return { ok: false, reply: null };
   }
 }
