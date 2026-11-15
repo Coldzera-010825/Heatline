@@ -4,7 +4,11 @@
   const $ = id => document.getElementById(id);
   const R = window.HEATLINE_RESULTS, L = window.HEATLINE_LAYERS;
   const shades = ["#ffc371", "#7dcbd0", "#96d09b", "#baa5cf"];
-  const modes = { baseline: ["Baseline walking UTCI", 2], scenario: ["Shade scenario UTCI", 3], reduction: ["UTCI reduction", 4] };
+  const modes = { baseline: ["Baseline walking UTCI", 2], scenario: ["Shade scenario UTCI", 3],
+    reduction: ["UTCI reduction", 4], priority: ["Field priority", 7] };
+  const priorityColors = [[0, "#294268"], [2, "#4b76a1"], [6, "#6db7b6"], [12, "#b9e5a4"], [25, "#fff5bd"]];
+  const priorityTop = priorityColors.at(-1)[0];
+  const priorityMethod = "Field priorities combine modelled heat, the sunlit fraction of walking length and the selected group’s share of local residents.";
   const num = (value, digits = 1) => R.format(value, digits);
   const temp = value => Number.isFinite(value) ? num(value, 2) + "°C" : "Unavailable";
   const utc = time => time ? time.replace("T", " ").replace("Z", " UTC") : "Model time unavailable";
@@ -37,22 +41,34 @@
       return [["OSM way", item.osmWayId], ["Segment", item.id], ["Location (lon, lat)", coordinates],
         ["Modelled shade", item.shadeClass], ["Length of this segment", metres(item.lengthM)]];
     }
-    return [["100 m cell", item.id], ["Centre (lon, lat)", coordinates], ["Represented walking length", metres(item.totalM)],
+    const rows = [["100 m cell", item.id], ["Centre (lon, lat)", coordinates], ["Represented walking length", metres(item.totalM)],
       ["Sunlit length", metres(item.sunM) + " · " + pct(item.sunShare)], ["Building shade", metres(item.buildingShadeM)],
       ["Canopy shade", metres(item.canopyShadeM)], ["Partial shade", metres(item.partialShadeM)],
-      ["Baseline / scenario UTCI", temp(item.baseline) + " / " + temp(item.scenario)], ["UTCI reduction", temp(item.reduction)]];
+      ["Baseline UTCI", temp(item.baseline)],
+      ["Scenario UTCI", item.reduction == null ? temp(item.scenario) + " · baseline carried forward" : temp(item.scenario)],
+      ["UTCI reduction", item.reduction == null ? "No valid shade pair" : temp(item.reduction)]];
+    if (item.priority) {
+      const p = item.priority;
+      rows.push(["Census area", p.areaId], ["Group share of area residents", `${num(p.count, 0)} / ${num(p.residents, 0)} · ${pct(p.share)}`],
+        ["Field priority score", num(p.score, 2)]);
+    }
+    return rows;
   }
 
   function summaryRows(result) {
     return [["Baseline UTCI", temp(result.baseline)], ["Scenario UTCI", temp(result.scenario)],
       ["UTCI reduction", temp(result.reduction)], ["Modelled walking cells", num(result.cellCount, 0)],
       ["Covered walking length", num(result.pathM / 1000, 2) + " km"], ["Sunlit share", pct(result.sunShare)],
-      ["Walking length with a shade pair", pct(result.pairedShare)]];
+      ["Walking length in paired cells", pct(result.pairedShare)],
+      ...(result.census ? [["Walking length matched to census areas", pct(result.censusShare)]] : [])];
   }
 
   function evidenceText(result, item) {
     if (item?.street) return `${item.name || "This walking segment"} has ${metres(item.lengthM)} in ${item.shadeClass} at ${utc(result.timeUtc)}.`;
-    if (item) return `The selected cell has ${temp(item.baseline)} UTCI and ${metres(item.sunM)} of modelled sunlit walking network (${pct(item.sunShare)} of its covered length).`;
+    if (item) {
+      const heat = `The selected cell has ${temp(item.baseline)} UTCI and ${metres(item.sunM)} of modelled sunlit walking network (${pct(item.sunShare)} of its covered length).`;
+      return item.priority ? heat + ` ${result.group} account for ${pct(item.priority.share)} of residents in census area ${item.priority.areaId}. The field priority score is ${num(item.priority.score, 2)}.` : heat;
+    }
     return `Across ${result.label}, baseline walking-length-weighted UTCI is ${temp(result.baseline)}. ` +
       `${pct(result.pairedShare)} of covered walking length has a sun and building-shade pair.`;
   }
@@ -78,6 +94,7 @@
       })()),
       section("Data and methods", R.element("p", [result.engine, result.source].filter(Boolean).join(" · ")),
         R.element("p", "The scenario keeps unpaired routes at baseline and applies the paired building-shade contrast to the stated share of sunlit route length. Field checks cover use, access and site conditions."),
+        ...(result.census ? [R.element("p", `${result.census.source} · ${result.census.unit}. ${priorityMethod} Census counts describe residence. Street use is checked on site.`)] : []),
         ...(result.streets ? [R.element("p", `${result.streets.terrainM} m modelled street shade · ${result.streets.source} · OSM ${result.streets.osmSnapshots.join(", ")}`)] : []), source));
     return body;
   }
@@ -88,7 +105,7 @@
       body.outerHTML + "</html>";
   }
 
-  function create({ map, context, active, canInspect, request, focusMap, narrate }) {
+  function create({ map, context, census, active, canInspect, request, focusMap, narrate }) {
     let analysis, location, snapshot, gridInView, inputKey, pendingLocation;
     let layer = "baseline", showStreets = false, revision = 0, mapRequest = 0;
     const source = (name, content = L.empty) => map.getSource(name)?.setData(content);
@@ -111,7 +128,7 @@
         map.addSource(name, { type: "geojson", data: L.empty });
       }
       map.addLayer({ id: "review-grid-fill", type: "fill", source: "review-grid",
-        paint: { "fill-color": L.color("utci"), "fill-opacity": ["case", ["get", "unavailable"], .17, .68] } }, under);
+        paint: { "fill-color": L.color("utci"), "fill-opacity": ["case", ["get", "unavailable"], .13, ["get", "carried"], .30, .68] } }, under);
       map.addLayer({ id: "review-sampled-streets", type: "line", source: "review-street-segments",
         layout: { "line-join": "round", "line-cap": "round" }, paint: {
           "line-width": ["interpolate", ["linear"], ["zoom"], 14, 1.5, 16, 2.7, 18, 4.5], "line-opacity": .92,
@@ -166,7 +183,9 @@
         const ring = step ? [[w, s], [w + step[0], s], [w + step[0], s + step[1]], [w, s + step[1]], [w, s]] : row[5];
         if (!ring) continue;
         const value = row[valueIndex];
-        let cell = { type: "Feature", geometry: { type: "Polygon", coordinates: [ring] }, properties: { value: value ?? 0, unavailable: value == null } };
+        let cell = { type: "Feature", geometry: { type: "Polygon", coordinates: [ring] }, properties: {
+          value: value ?? 0, unavailable: value == null, carried: layer === "scenario" && !row[6],
+        } };
         if (context().bounds) cell = L.clip(cell, review.bounds);
         if (cell && step && clip) {
           cell = clip.clip(cell, [w, s, w + step[0], s + step[1]]);
@@ -174,17 +193,27 @@
         if (cell) features.push(cell);
       }
       source("review-grid", L.collection(features));
-      const colors = layer === "reduction" ? ["interpolate", ["linear"], ["get", "value"], -2, "#dc785a", 0, "#827878", 1, "#a3dbbd", 3, "#e4ffce"] : L.color("utci");
+      const colors = layer === "priority" ? ["interpolate", ["linear"], ["get", "value"], ...priorityColors.flat()] :
+        layer === "reduction" ? ["interpolate", ["linear"], ["get", "value"], -2, "#dc785a", 0, "#827878", 1, "#a3dbbd", 3, "#e4ffce"] : L.color("utci");
       map.setPaintProperty("review-grid-fill", "fill-color", ["case", ["get", "unavailable"], "#8d8a87", colors]);
-      $("review-map-label").textContent = modes[layer][0];
-      $("review-map-ramp").style.background = layer === "reduction" ? "" : "linear-gradient(90deg," + L.layers.utci.colors.join(",") + ")";
+      $("review-map-label").textContent = modes[layer][0] + (layer === "priority" ? " · " + review.group : "");
+      $("review-map-ramp").style.background = layer === "priority"
+        ? "linear-gradient(90deg," + priorityColors.map(([value, color]) => color + " " + value / priorityTop * 100 + "%").join(",") + ")"
+        : layer === "reduction" ? "" : "linear-gradient(90deg," + L.layers.utci.colors.join(",") + ")";
       $("review-map-ramp").dataset.mode = layer;
       const [min, max] = L.layers.utci.range;
-      const range = layer === "reduction" ? "≤−2 to ≥3°C" : `≤${min} to ≥${max}°C`;
-      $("review-map-caption").textContent = `${range} · ${grid.metres} m ${grid.metres === 500 ? "overview" : "walking cells"} · ${utc(review.timeUtc)}`;
+      const range = layer === "priority" ? "0 to ≥" + priorityTop + " points" : layer === "reduction" ? "≤−2 to ≥3°C" : `≤${min} to ≥${max}°C`;
+      const resolution = grid.metres === 500 ? layer === "priority" ? "500 m overview · peak 100 m score" : "500 m overview" : "100 m walking cells";
+      $("review-map-caption").textContent = `${range} · ${resolution} · ${utc(review.timeUtc)}`;
+      const coverage = { scenario: "Dim cells carry forward baseline UTCI. Brighter cells contain valid shade pairs.",
+        reduction: "Gray marks cells without a valid shade pair.", priority: "Census residence weights · gray marks no census match." };
+      $("review-map-coverage").textContent = coverage[layer] ?? "";
+      $("review-map-coverage").hidden = !coverage[layer];
       for (const button of document.querySelectorAll("[data-review-layer]")) {
         button.setAttribute("aria-pressed", String(button.dataset.reviewLayer === layer));
-        button.disabled = button.dataset.reviewLayer !== "baseline" && !review.pairedCells;
+        const mode = button.dataset.reviewLayer;
+        button.hidden = mode === "priority" && !review.censusShare;
+        button.disabled = mode === "priority" ? !review.censusShare : mode !== "baseline" && !review.pairedCells;
       }
       $("review-street-toggle").setAttribute("aria-pressed", String(showStreets));
       $("review-street-toggle").disabled = !review.streets;
@@ -211,12 +240,17 @@
       if (analysis) {
         const result = analysis.review;
         summary.append(R.element("h2", "Selected walking network"), measures(summaryRows(result)));
-        if (!result.pairedCells) summary.append(R.element("p", "A shade comparison needs at least 20 m each of sunlit and building-shaded routes in the same 100 m cell.", "data-note"));
+        summary.append(R.element("p", "A shade comparison needs at least 20 m each of sunlit and building-shaded routes in the same 100 m cell. Other cells carry forward their baseline UTCI.", "data-note"));
         if (!result.streets) summary.append(R.element("p", "Street linework requires a shade split for this model time. Grid review is available.", "data-note"));
+        if (result.census && !result.candidates.length) candidates.append(R.element("p", result.censusShare
+          ? "No census-matched cell reaches a positive field priority score in this area."
+          : "No walking cells match this census group in the selected area.", "data-note"));
         if (result.candidates.length) {
           const list = R.element("div", null, "review-candidate-list");
-          list.append(...result.candidates.map((item, i) => R.button(`${i + 1} · ${temp(item.baseline)} · ${metres(item.sunM)} sunlit`, () => pick(item.coordinates, true))));
-          candidates.append(R.element("h3", "Hot sunlit cells"), list);
+          list.append(...result.candidates.map((item, i) => R.button(item.priority
+            ? `${i + 1} · ${num(item.priority.score, 2)} points · ${pct(item.priority.share)} resident share · ${temp(item.baseline)}`
+            : `${i + 1} · ${temp(item.baseline)} · ${metres(item.sunM)} sunlit`, () => pick(item.coordinates, true))));
+          candidates.append(R.element("h3", result.census ? "Field priorities · " + result.group : "Hot sunlit cells"), list);
         }
       }
       paint();
@@ -282,6 +316,7 @@
         inputKey = stamp;
         gridInView = undefined;
         if (!data.review.pairedCells) layer = "baseline";
+        if (data.review.censusShare) layer = "priority";
         showStreets = showStreets && Boolean(data.review.streets);
         if (!location) location = data.review.candidates[0];
         render();
@@ -292,7 +327,9 @@
       progress("Preparing the evidence and field checks…");
       const summary = await narrate(question, { reply: evidence, timeUtc: result.timeUtc, region: result.region,
         baseline: result.baseline, scenario: result.scenario, reduction: result.reduction,
-        pairedSharePct: Number((result.pairedShare * 100).toFixed(1)), location });
+        pairedSharePct: Number((result.pairedShare * 100).toFixed(1)), location, group: result.group,
+        ...(result.census ? { census: result.census, censusCoverage: result.censusShare, priorityMethod,
+          interpretation: "The census measures where people live. The score screens locations for a field visit." } : {}) });
       if (check !== revision || !active()) return;
       snapshot = { id: check, result, location, summary: summary ?? evidence };
       render();
@@ -312,6 +349,13 @@
     }
 
     function restore() {
+      const meta = census();
+      const focus = $("review-focus");
+      for (const option of focus.options) option.disabled = option.value !== "all" && !meta?.groups.includes(option.value);
+      if (focus.selectedOptions[0].disabled) focus.value = "all";
+      $("review-focus-note").textContent = meta
+        ? `${meta.source}. Resident groups change the field priorities. The UTCI maps show the thermal conditions.`
+        : "This case needs matched census data for resident-group priorities.";
       const options = input();
       $("review-context").textContent = num(options.shadePercent) + "% of sunlit length converted using the Act 4 assumption.";
       if (analysis && key(options) !== inputKey) reset("Configuration changed. Run AI Analyze to update the briefing.");
@@ -325,11 +369,7 @@
       return true;
     }
 
-    $("review-focus").onchange = () => {
-      draft();
-      updatePending();
-    };
-    function updatePending() { status("Configuration changed. Run AI Analyze to update the briefing."); }
+    $("review-focus").onchange = () => reset("Run AI Analyze to rank the walking cells for this selection.");
     for (const button of document.querySelectorAll("[data-review-layer]")) button.onclick = () => {
       layer = button.dataset.reviewLayer;
       renderGrid();

@@ -250,13 +250,16 @@ const pairCheck = await api({ ...reviewInput, coverage: "city", kind: "shade" })
 assert(fieldReview.ok && pairCheck.ok);
 assert.equal(fieldReview.review.grid.metres, 100);
 assert.equal(fieldReview.review.timeUtc, "2022-07-18T10:52:15Z");
-assert.equal(fieldReview.review.group, "Older adults");
+assert.equal(fieldReview.review.group, "Residents aged 65+");
 assert.equal(fieldReview.review.pairedCells, pairCheck.event.pairedCells);
 close(fieldReview.review.baseline, pairCheck.event.selection.before, .01);
 close(fieldReview.review.reduction, pairCheck.event.selection.reduction, .01);
 const firstReviewCell = fieldReview.review.candidates[0];
-const checkedLocation = await api({ ...reviewInput, kind: "review", point: firstReviewCell.coordinates });
+const checkedLocation = await api({ ...reviewInput, kind: "review", focus: "older", point: firstReviewCell.coordinates });
 assert.deepEqual(checkedLocation.cell, firstReviewCell);
+assert(firstReviewCell.priority.score > 0 && /^E00\d+$/.test(firstReviewCell.priority.areaId));
+close(firstReviewCell.priority.score, 100 * Math.min(1, (firstReviewCell.baseline - 32) / 14) *
+  firstReviewCell.sunShare * firstReviewCell.priority.share, .000001);
 const noConversion = await api({ ...reviewInput, kind: "review", shadePercent: 0 });
 assert.equal(noConversion.review.scenario, noConversion.review.baseline);
 assert.equal(noConversion.review.reduction, 0);
@@ -266,6 +269,22 @@ assert.equal(fullReview.review.cellCount, 129280);
 assert.equal(fullReview.review.grid.metres, 500);
 assert.equal(fullReview.review.streets.rasterTiles, 514);
 assert(fullReview.review.streets.routeParts > 400000);
+assert(fullReview.review.grid.cells.some(cell => cell[6] > 0 && cell[4] != null));
+const carried = fullReview.review.grid.cells.filter(cell => cell[6] === 0);
+assert(carried.length > 0 && carried.every(cell => cell[2] === cell[3] && cell[4] == null));
+const focused = [];
+for (const focus of ["older", "children", "limited"]) {
+  const { review } = await api({ archiveCase: londonFull, kind: "review", focus });
+  assert.equal(review.scenario, fullReview.review.scenario);
+  assert.equal(review.baseline, fullReview.review.baseline);
+  assert(review.censusShare > .99 && review.census.year === 2021);
+  assert.equal(review.candidates.length, 5);
+  assert.equal(new Set(review.candidates.map(cell => cell.priority.areaId)).size, 5);
+  assert(review.grid.cells.some(cell => cell[7] > 0));
+  focused.push(review);
+}
+assert.equal(new Set(focused.map(review => review.candidates[0].id)).size, 3);
+assert(focused[0].grid.cells.some((cell, i) => cell[7] !== focused[1].grid.cells[i][7]));
 const streetReview = await api({ ...reviewInput, kind: "review-streets", viewport: reviewBounds });
 assert(streetReview.ok && streetReview.streets.features.length > 100);
 assert(streetReview.streets.features.every(feature => /^\d+$/.test(feature.properties.osmWayId) &&
@@ -275,6 +294,7 @@ assert(new Set(streetReview.streets.features.map(feature => feature.id)).size ==
 const utrechtReview = await api({ archiveCase: archiveCase("Utrecht"), kind: "review" });
 assert.equal(utrechtReview.review.cellCount, 46814);
 assert.equal(utrechtReview.review.streets, null);
+assert.equal((await api({ archiveCase: archiveCase("Utrecht"), kind: "review", focus: "children" })).status, "unavailable");
 assert.match((await api({ archiveCase: archiveCase("Utrecht"), kind: "review-streets", viewport: [5.105, 52.084, 5.11, 52.089] })).reply, /georeferenced shade split/);
 assert.equal((await api({ ...reviewInput, kind: "review", date: "2022-07-19" })).status, "unavailable");
 console.log("Greater London and Utrecht street review, scenario, coverage and clipped geometry passed.");

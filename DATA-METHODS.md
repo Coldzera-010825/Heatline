@@ -91,9 +91,37 @@ The `review` action on `POST /api/analysis` accepts the existing `archiveCase`
 city and event, an optional selection `bounds`, the Act 4 `shadePercent` and a
 `focus` for field checks. `point` requests one modelled 100 m cell. The Worker
 calculates baseline UTCI, four shade lengths, paired coverage and the scenario
-from the case’s existing model inputs. The 500 m overview uses the same 100 m
-length weights. A city with an archived walking model can run this action
-as soon as the inputs are registered in the administrative catalog.
+from the case’s existing model inputs. The scenario map carries forward baseline
+UTCI where a valid sun and building-shade pair is absent. These cells appear
+dimmed on the scenario map and have no value on the reduction map. The 500 m
+thermal overview uses the same 100 m walking length weights.
+
+The city catalogue registers group evidence under `reviewCensus`. The Worker
+joins each 100 m walking-cell centre to its census area. For group `g` in cell
+`i`, the priority score is
+
+```text
+P_i,g = 100 × clamp((UTCI_i − 32) / (46 − 32), 0, 1)
+            × (sunlit walking length_i / modelled walking length_i)
+            × (residents_g in the census area / all residents in that area)
+```
+
+The review ranks positive scores, keeping the highest-ranked cell per census
+area. Each 500 m priority tile uses its highest matched 100 m score. Group
+coverage measures the share of modelled walking length in matched cells.
+This is a field screening score. Census counts describe residence, and a
+site visit checks who uses the routes and waiting locations.
+
+London uses [ONS TS007A age bands](https://www.ons.gov.uk/peoplepopulationandcommunity/populationandmigration/populationestimates/adhocs/15432ts007acensus2021agebyfiveyearagebands)
+and [ONS TS038](https://www.ons.gov.uk/datasets/TS038/editions/2021/versions/1)
+by Census 2021 Output Area. Age uses 65+ and 0–14. The TS038 group includes
+respondents whose long-term conditions limit daily activities a little or a lot.
+Run `prepare-review-census.py --help` to join a city’s WGS84 census polygons and
+counts to its existing walking cells. Supply counts from a common census
+denominator for each area. The optional London arguments read the TS007A
+Nomis ZIP and the existing OA centroid package with TS038 counts. The generated
+lookup contains only area IDs and aggregate counts. The Worker computes scores
+for the selected event and area at request time.
 
 The old city exports grouped route samples by cell, shade class and mean
 radiant temperature. SOLWEIG shadow rasters were written to temporary tile

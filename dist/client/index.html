@@ -108,11 +108,12 @@
         <p>Apply each paired cell’s building-shade UTCI to that share of sunlit walking length. Event weather and other routes stay fixed.</p>
       </div>
       <div id="review-settings" class="data-controls review-settings" hidden>
-        <label for="review-focus">People to consider on site</label>
-        <select id="review-focus">
-          <option value="all">All pedestrians</option><option value="older">Older adults</option>
-          <option value="children">Children</option><option value="limited">People with limited mobility</option>
+        <label for="review-focus">Residents to consider for field checks</label>
+        <select id="review-focus" aria-describedby="review-focus-note">
+          <option value="all">All walking routes</option><option value="older">Residents aged 65+</option>
+          <option value="children">Residents aged 0–14</option><option value="limited">Residents with limited daily activities</option>
         </select>
+        <p id="review-focus-note" class="data-note"></p>
         <p id="review-context" class="data-note"></p>
       </div>
       <button type="button" id="run-analysis" class="run-analysis"><span id="run-label"></span><span aria-hidden="true">↗</span></button>
@@ -172,10 +173,12 @@
   <b id="review-map-label"></b>
   <div id="review-map-ramp" class="review-map-ramp"></div>
   <small id="review-map-caption"></small>
+  <small id="review-map-coverage" hidden></small>
   <div class="view-toggle review-views" role="group" aria-label="Review map layers">
     <button type="button" data-review-layer="baseline" aria-pressed="true">Baseline UTCI</button>
     <button type="button" data-review-layer="scenario" aria-pressed="false">Shade scenario</button>
     <button type="button" data-review-layer="reduction" aria-pressed="false">ΔUTCI</button>
+    <button type="button" data-review-layer="priority" aria-pressed="false" hidden>Field priority</button>
   </div>
   <button type="button" id="review-street-toggle" class="secondary-action" aria-pressed="false">Street shade</button>
   <small id="review-map-status" role="status" hidden></small>
