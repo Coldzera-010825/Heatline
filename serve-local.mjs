@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
-import { createReadStream } from "node:fs";
+import { createReadStream, readFileSync } from "node:fs";
+import { parseEnv } from "node:util";
 import { stat } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
@@ -7,6 +8,20 @@ import { fileURLToPath } from "node:url";
 import worker from "./worker/index.mjs";
 
 const root = fileURLToPath(new URL("./dist/client", import.meta.url));
+const envFile = fileURLToPath(new URL("./.dev.vars", import.meta.url));
+// The regression harness runs without a model so its assertions stay deterministic.
+// Values from .dev.vars win over the shell: an empty exported variable used to hide the key.
+if (process.env.HEATLINE_OFFLINE !== "1") {
+  try {
+    Object.assign(process.env, parseEnv(readFileSync(envFile, "utf8")));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+}
+const env = {
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+  GEMINI_MODEL: process.env.GEMINI_MODEL,
+};
 const port = 8788;
 const origin = "http://127.0.0.1:" + port;
 const types = {
@@ -35,10 +50,12 @@ const ASSETS = {
 createServer(async (incoming, outgoing) => {
   try {
     const body = ["GET", "HEAD"].includes(incoming.method) ? undefined : Readable.toWeb(incoming);
-    const request = new Request(new URL(incoming.url, origin), {
+    const host = incoming.headers.host ?? "127.0.0.1:" + port;
+    const request = new Request(new URL(incoming.url, "http://" + host), {
       method: incoming.method, headers: incoming.headers, ...(body && { body, duplex: "half" }),
     });
-    const response = await worker.fetch(request, { ASSETS });
+    const response = await worker.fetch(request, { ...env, ASSETS });
+    if (incoming.url.startsWith("/api/")) console.log(request.method, incoming.url, "->", response.status);
     outgoing.writeHead(response.status, Object.fromEntries(response.headers));
     if (!response.body) return outgoing.end();
     const stream = Readable.fromWeb(response.body);

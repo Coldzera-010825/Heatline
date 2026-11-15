@@ -2031,7 +2031,7 @@
   async function receive(endpoint, body, onProgress) {
     const response = await fetch(endpoint, {
       method: "POST", headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
-      body: JSON.stringify(body), signal: AbortSignal.timeout(body.mapFormat === "compact" ? 65000 : 20000),
+      body: JSON.stringify(body), signal: AbortSignal.timeout(body.mapFormat === "compact" ? 65000 : 35000),
     });
     if (response.headers.get("content-type")?.includes("application/json")) return response.json();
     if (!response.ok || !response.body || !response.headers.get("content-type")?.includes("application/x-ndjson")) {
@@ -2055,6 +2055,44 @@
     handle(buffer);
     if (!outcome) throw new Error("Analysis service did not return a result");
     return outcome;
+  }
+
+  // Summarises an analysis result so the model can describe it without inventing numbers.
+  function digestOf(value, depth = 0) {
+    if (value === null || typeof value === "number" || typeof value === "boolean") return value;
+    if (typeof value === "string") return value.length > 140 ? value.slice(0, 140) : value;
+    if (depth >= 4) return undefined;
+    if (ArrayBuffer.isView(value)) return { length: value.length };
+    if (Array.isArray(value)) {
+      if (value.length > 10) return { length: value.length };
+      return value.map(item => digestOf(item, depth + 1)).filter(item => item !== undefined);
+    }
+    if (typeof value === "object") {
+      const out = {};
+      for (const [key, item] of Object.entries(value)) {
+        const trimmed = digestOf(item, depth + 1);
+        if (trimmed !== undefined) out[key] = trimmed;
+      }
+      return out;
+    }
+    return undefined;
+  }
+
+  async function narrateResult(question, result) {
+    if (!question || !result?.reply) return undefined;
+    let digest = digestOf(result);
+    if (JSON.stringify(digest).length > 12000) digest = digestOf(result, 2);
+    if (JSON.stringify(digest).length > 12000) return undefined;
+    try {
+      const reply = await Promise.race([
+        receive("/api/chat", { narrate: { question, digest } }, () => {}),
+        wait(16000).then(() => null),
+      ]);
+      const text = typeof reply?.reply === "string" ? reply.reply.trim() : "";
+      return text || undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   function revealComparison(focus = false) {
@@ -2171,8 +2209,9 @@
       updateArchiveControls();
       refreshGrid();
     }
-    await Promise.all([renderResult(true), chatTurn && writeReply(chatTurn, outcome.reply + (kind === "station" && !options.compare &&
-      archiveState.data.stations.length > 1 ? " I can compare the same period with a second station." : ""))]);
+    const [narrated] = await Promise.all([narrateResult(chatTurn?.question, outcome), renderResult(true)]);
+    await (chatTurn && writeReply(chatTurn, (narrated ?? outcome.reply) + (kind === "station" && !options.compare &&
+      archiveState.data.stations.length > 1 ? " I can compare the same period with a second station." : "")));
     finishToolCall(chatTurn, true);
   }
 
@@ -2267,8 +2306,9 @@
     else if (kind === "shade" && map.getZoom() < 12.3) move(street);
     refreshGrid();
     $("analysis-progress").hidden = true;
-    await Promise.all([renderResult(true), chatTurn && writeReply(chatTurn, result.reply + (kind === "station" && !options.compare ?
-      " I can compare these hours with another station." : ""))]);
+    const [narrated] = await Promise.all([narrateResult(chatTurn?.question, result), renderResult(true)]);
+    await (chatTurn && writeReply(chatTurn, (narrated ?? result.reply) + (kind === "station" && !options.compare ?
+      " I can compare these hours with another station." : "")));
     finishToolCall(chatTurn, true);
     if (chatTurn) scrollChat();
     if (kind === "station") suggestions();
@@ -2301,6 +2341,7 @@
     if (!ready || busy || drawing || caseLoading) return;
     appendTurn("user", text);
     const chatTurn = appendTurn("atlas");
+    chatTurn.question = text;
     return withBusy(async () => {
       const result = await receive("/api/chat", {
         message: text, bounds: area()?.bounds, studyArea: stage === 2 && area()?.chosen === true, chapter: stage + 1,

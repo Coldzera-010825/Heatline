@@ -1,0 +1,4 @@
+# Local-only runtime settings for the preview server. Never commit this file.
+# Copy to .dev.vars and fill in your own values.
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.1-flash-lite
