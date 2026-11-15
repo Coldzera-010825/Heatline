@@ -6,6 +6,7 @@ import { extname, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import worker from "./worker/index.mjs";
+import { localWorkspace } from "./local-workspace-storage.mjs";
 
 const root = fileURLToPath(new URL("./dist/client", import.meta.url));
 const envFile = fileURLToPath(new URL("./.dev.vars", import.meta.url));
@@ -22,7 +23,9 @@ const env = {
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GEMINI_MODEL: process.env.GEMINI_MODEL,
 };
-const port = 8788;
+const previewWorkspace = process.env.HEATLINE_LOCAL_WORKSPACE === "1";
+if (previewWorkspace) env.WORKSPACE = localWorkspace();
+const port = Number(process.env.HEATLINE_PREVIEW_PORT ?? 8788);
 const origin = "http://127.0.0.1:" + port;
 const types = {
   ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -51,8 +54,10 @@ createServer(async (incoming, outgoing) => {
   try {
     const body = ["GET", "HEAD"].includes(incoming.method) ? undefined : Readable.toWeb(incoming);
     const host = incoming.headers.host ?? "127.0.0.1:" + port;
+    const headers = new Headers(incoming.headers);
+    if (previewWorkspace && !headers.has("oai-authenticated-user-id")) headers.set("oai-authenticated-user-id", "heatline-local-researcher");
     const request = new Request(new URL(incoming.url, "http://" + host), {
-      method: incoming.method, headers: incoming.headers, ...(body && { body, duplex: "half" }),
+      method: incoming.method, headers, ...(body && { body, duplex: "half" }),
     });
     const response = await worker.fetch(request, { ...env, ASSETS });
     if (incoming.url.startsWith("/api/")) console.log(request.method, incoming.url, "->", response.status);

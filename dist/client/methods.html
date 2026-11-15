@@ -293,6 +293,15 @@
         <p class="citations"><a href="#shade">Paired shade formula</a><a href="data/admin/street-review/London/E3_2022-07/manifest.json">London street shade inputs</a><a href="https://www.openstreetmap.org/copyright">OpenStreetMap attribution</a><a href="./?city=London&amp;event=E3_2022-07#review">Open Review &amp; advise ↗</a></p>
       </article>
 
+      <article class="method-card" id="workspace" aria-labelledby="workspace-title">
+        <h3 id="workspace-title">Import, analyse and export a study</h3>
+        <p>A private study uses one footprint and a UTC event time. GeoJSON uses WGS 84 coordinates. Use north-up, georeferenced single-band GeoTIFFs for rasters and UTF-8 CSV for model inputs. File validation reports spatial coverage, units, dates and missing columns. The first release allows 12 MiB per file, 500,000 clipped raster pixels and 100,000 CSV data rows.</p>
+        <p>Residential analysis samples calibrated LST at population-cell centres and weights by people per pixel. Results record the matched resident denominator and the population reference year.</p>
+        <p>Walking heat needs coordinates, time, represented walking length, mean radiant and air temperature, relative humidity and 10 m wind. The analysis reports and excludes represented lengths outside the UTCI input range. Shade uses classes from the same snapshot. The shade scenario and field-priority methods apply the equations above to the uploaded layers and current selection.</p>
+        <p>Exports include CSV, GeoJSON and a reproducibility ZIP with the selection, source file checksums, model and application revisions, and input parameters. The study expiry is displayed in the workspace.</p>
+        <p class="citations"><a href="#residential">Population weighting</a><a href="#street">UTCI inputs</a><a href="#shade">Paired shade</a><a href="#review">Field priority</a><a href="workspace.html">Open Research Workspace ↗</a></p>
+      </article>
+
       <article class="method-card" id="comparison" aria-labelledby="comparison-title">
         <h3 id="comparison-title">Cross-city comparisons</h3>
         <h4>Residential LST</h4>

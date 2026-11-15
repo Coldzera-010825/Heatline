@@ -25,10 +25,14 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
+      - name: Install build dependencies
+        run: npm ci
       - name: Build
         run: npm run build
       - name: Verify the analysis API
         run: node verify-local.mjs
+      - name: Verify the research workspace
+        run: node test-workspace.mjs
       - name: Archive tested build
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:

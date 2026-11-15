@@ -20,6 +20,10 @@ const id = (lon, lat) => `${lon},${lat}`;
 const rankOrder = (a, b) => (b.priority?.score ?? 0) - (a.priority?.score ?? 0) ||
   b.baseline - a.baseline || b.sunM - a.sunM || a.id.localeCompare(b.id);
 
+export function reviewPriority(utci, sunShare, residentShare) {
+  return 100 * Math.max(0, Math.min(1, (utci - 32) / (46 - 32))) * sunShare * residentShare;
+}
+
 async function censusFor(meta, focus, read) {
   if (focus === "all") return null;
   const [packed, areas] = await Promise.all([
@@ -47,8 +51,7 @@ function fieldPriority(census, row) {
       const count = area[census.column];
       if (count == null) return null;
       const share = count / residents;
-      const heat = Math.max(0, Math.min(1, (utci - 32) / (46 - 32)));
-      return { score: 100 * heat * (sun / length) * share, areaId, count, residents, share };
+      return { score: reviewPriority(utci, sun / length, share), areaId, count, residents, share };
     }
   }
   return null;

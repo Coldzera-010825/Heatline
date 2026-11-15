@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 
-const base = "http://127.0.0.1:8788";
+const base = "http://127.0.0.1:" + (process.env.HEATLINE_PREVIEW_PORT || "8788");
 const cwd = new URL(".", import.meta.url);
 const server = spawn(process.execPath, ["serve-local.mjs"], { cwd, stdio: "inherit", env: { ...process.env, HEATLINE_OFFLINE: "1" } });
 const closed = once(server, "close");

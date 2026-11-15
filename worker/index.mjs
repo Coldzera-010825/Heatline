@@ -4,6 +4,7 @@ import { analyzePopulation, analyzeShade, analyzeStation } from "./event-analysi
 import { analyzeArchive, archiveChat, compareStreet } from "./case-analysis.mjs";
 import { analyzeCityStreet } from "./city-street.mjs";
 import { analyzeStreetReview } from "./street-review.mjs";
+import { pruneResearch, workspace } from "./workspace.mjs";
 
 const maxBodyBytes = 16 * 1024;
 const encoder = new TextEncoder();
@@ -144,11 +145,17 @@ async function handleApi(request, url, env) {
 }
 
 export default {
-  fetch(request, env) {
+  fetch(request, env, context) {
     const url = new URL(request.url);
+    if (url.pathname === "/api/workspace" || url.pathname.startsWith("/api/workspace/")) {
+      return workspace(request, url, env, context);
+    }
     if (url.pathname === "/api/analysis" || url.pathname === "/api/chat") {
       return handleApi(request, url, env);
     }
     return env.ASSETS.fetch(request);
+  },
+  scheduled(event, env, context) {
+    context.waitUntil(pruneResearch(env.WORKSPACE));
   },
 };
