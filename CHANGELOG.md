@@ -1,5 +1,11 @@
 # Heatline changelog
 
+## v18 — Research data and methods page
+
+- Add a dedicated page with official sources, downloadable study boundaries, model coverage, formulas, and literature and atlas references.
+- Link each map chapter’s **Data and method** panel and the related result notes to the corresponding method.
+- Count all matched residents at or above 45 °C in the non-London census summaries.
+
 ## v17 — Focus walking heat exposure on 2022
 
 - Lock **At street level** to the 2022 heatwave case. All eight city boundaries remain selectable on this chapter. Seattle and Portland show which 2022 inputs are needed before analysis can run.

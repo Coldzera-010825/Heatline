@@ -288,7 +288,7 @@
       ["Daily Tmax · " + e.date, degrees(e.point.tmax)], ["Tmax anomaly", degrees(e.point.tmax_anom)],
       ["1991–2020 P90", degrees(e.point.tmax_p90_1991_2020)],
     ]));
-    nodes.push(R.details("How this was calculated", e.method, e.missingLST));
+    nodes.push(R.methodDetails("How this was calculated", e.kind === "archive-population" ? "residential" : "weather", e.method, e.missingLST));
     return nodes;
   }
 

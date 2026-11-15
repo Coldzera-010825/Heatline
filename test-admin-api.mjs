@@ -42,6 +42,13 @@ for (const [region, city] of Object.entries(admin.cities)) {
   assert(groups.ok, JSON.stringify(groups));
   assert(groups.event.groups.older.matched > 0, region);
   assert(groups.event.groups.older.matched <= groups.event.groups.all.matched, region);
+  if (region !== "London") {
+    const older = groups.event.groups.older;
+    const shareAtLeast45 = groups.event.distribution
+      .filter(band => Number.parseFloat(band.label.replace(/^≥/, "")) >= 45)
+      .reduce((sum, band) => sum + (band.older ?? 0), 0);
+    close(older.atLeast45, older.matched * shareAtLeast45, 1.01);
+  }
   assert((groups.event.metricTiles ?? groups.event.tiles).length > 0, region + " census result map");
   if (city.metroCensus) assert.equal(groups.event.place, city.adminName);
   else if (city.census?.area) assert(groups.event.place.includes(city.census.area));

@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f3eb">
+  <meta name="description" content="Data sources, study boundaries and equations behind Heatline’s historical heatwave, residential exposure, pedestrian UTCI and shade analyses.">
+  <title>Data &amp; Methods | Heatline</title>
+  <link rel="icon" href="data:,">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;1,500&amp;family=Space+Grotesk:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="methods.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="research-header">
+    <div class="wrap header-content">
+      <a class="research-brand" href="./#globe" aria-label="Heatline atlas"><span class="sun-mark" aria-hidden="true"></span><b>Heatline</b></a>
+      <nav class="section-nav" aria-label="On this page">
+        <a href="#sources">Data sources</a>
+        <a href="#study-areas">Study areas</a>
+        <a href="#equations">Methods</a>
+        <a href="#research-use">Research use</a>
+      </nav>
+      <a class="header-action" href="./#globe">Open atlas <span aria-hidden="true">↗</span></a>
+    </div>
+  </header>
+  <main class="wrap" id="main" tabindex="-1">
+    <section class="hero" aria-labelledby="title">
+      <div>
+        <h1 id="title">Data &amp;<br><em>methods</em></h1>
+        <p class="lead">Heatline helps researchers examine how historical heatwaves vary across cities, where residents live and along walking routes. Trace each result to its data, geographic coverage and calculation.</p>
+        <div class="hero-actions">
+          <a class="atlas-action" href="./?city=London&amp;event=E3_2022-07#event">Open the London case <span aria-hidden="true">↗</span></a>
+          <a class="text-action" href="#equations">Jump to equations <span aria-hidden="true">↓</span></a>
+        </div>
+      </div>
+      <figure class="heat-figure">
+        <div class="figure-label">
+          <strong>Greater London · Landsat surface temperature</strong>
+          <time datetime="2022-07-18T10:52:15Z">18 Jul 2022 · 10:52 UTC</time>
+        </div>
+        <div class="raster"><img src="data/admin/London/E3_2022-07/lst.png" width="587" height="452"
+          alt="Landsat land-surface temperature clipped to Greater London. Warm areas are orange and yellow. The Thames appears as a cooler violet channel."></div>
+        <figcaption>
+          <div class="figure-ramp"><span>≤25 °C</span><i aria-hidden="true"></i><span>≥55 °C</span></div>
+          <div>100 m atlas display grid. <a href="#surface">Figure source and processing</a></div>
+        </figcaption>
+      </figure>
+    </section>
+
+    <section class="section workflow" aria-labelledby="workflow-title">
+      <h2 id="workflow-title">From the heatwave to the street</h2>
+      <div class="workflow-grid">
+        <article>
+          <h3>Reconstruct the event</h3>
+          <p>Use daily reanalysis and station observations to identify the days and hours that frame a case.</p>
+          <a href="#weather">Weather and observation methods <span aria-hidden="true">↓</span></a>
+        </article>
+        <article>
+          <h3>Compare residential exposure</h3>
+          <p>Test whether resident groups live near hotter surfaces and check the share of each group represented by valid satellite pixels.</p>
+          <a href="#residential">Population and census weighting <span aria-hidden="true">↓</span></a>
+        </article>
+        <article>
+          <h3>Examine walking heat and shade</h3>
+          <p>Estimate thermal stress along covered paths and explore the change if a share of sunlit length had building shade.</p>
+          <a href="#street">Pedestrian UTCI and shade methods <span aria-hidden="true">↓</span></a>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="sources" aria-labelledby="sources-title">
+      <h2 id="sources-title">Data sources</h2>
+      <p class="section-intro">Use the provider links to acquire the original datasets. The published case catalog records the dates, display grids, boundary files and model coverage used in Heatline.</p>
+      <div class="source-grid">
+        <article class="source-card" id="source-weather">
+          <h3>Reanalysis and stations</h3>
+          <dl>
+            <dt>Globe and regional air temperature</dt>
+            <dd>The globe replays 13–19 July 2022 from the NCSCO daily ERA5-Land archive on a 2° sampled display, with land data between 84°S and 84°N. City archives use ERA5-Land at 0.1° and show ERA5 at 0.25° as a separate option where available.
+              <span class="citations"><a href="https://thredds.climate.ncsu.edu/thredds/catalog/ecmwf/era5land/temp_sl/daily/catalog.html">NCSCO archive</a><a href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land?tab=download">Copernicus ERA5-Land</a><a href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download">Copernicus ERA5</a></span></dd>
+            <dt>Weather forcing for SOLWEIG</dt>
+            <dd>Historical 2 m air temperature and humidity, 10 m wind and downwelling shortwave radiation come from ERA5-Seamless. Inputs are hourly and assigned to the model footprint.
+              <span class="citations"><a href="https://open-meteo.com/en/docs/historical-weather-api">Open-Meteo Historical Weather API</a></span></dd>
+            <dt>Observed air temperature</dt>
+            <dd>NOAA Global Hourly supplies screened station readings, including reference stations outside study polygons when identified. The detailed London case uses Met Office WOW community records, NOAA St James’s Park and an official event reference.
+              <span class="citations"><a href="https://www.ncei.noaa.gov/products/land-based-station/integrated-surface-database">NOAA ISD</a><a href="https://wow.metoffice.gov.uk/">Met Office WOW</a><a href="https://weather.metoffice.gov.uk/learn-about/past-uk-weather-events">Met Office historical events</a></span></dd>
+          </dl>
+        </article>
+        <article class="source-card" id="source-surface">
+          <h3>Satellite and landscape</h3>
+          <dl>
+            <dt>Landsat Collection 2 Level-2</dt>
+            <dd>USGS surface temperature and pixel quality bands supply the dated LST scenes. Landsat surface reflectance supplies the vegetation and water indices. The case records give the acquisition day and time for each layer.
+              <span class="citations"><a href="https://earthexplorer.usgs.gov/">USGS EarthExplorer</a><a href="https://www.usgs.gov/landsat-missions/landsat-collection-2-surface-temperature">Surface temperature product</a><a href="https://www.usgs.gov/landsat-missions/landsat-collection-2-surface-reflectance">Surface reflectance product</a></span></dd>
+            <dt>Land cover and surface elevation</dt>
+            <dd>ESA WorldCover 2021 v200 is a 10 m land-cover product. GLO-30 and the detailed London NASADEM layer provide approximately 30 m topographic context. Layer metadata report the displayed grid and the date or vintage.
+              <span class="citations"><a href="https://esa-worldcover.org/en/data-access">ESA WorldCover</a><a href="https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM">Copernicus GLO-30</a><a href="https://doi.org/10.5067/MEaSUREs/NASADEM/NASADEM_HGT.001">NASA JPL NASADEM</a></span></dd>
+          </dl>
+        </article>
+        <article class="source-card" id="source-population">
+          <h3>Population and census</h3>
+          <dl>
+            <dt>GHS-POP R2023A, 2020 epoch</dt>
+            <dd>Estimated residents per 100 m source cell provide common weights for regional weather and residential LST. Each case keeps the population baseline fixed through time.
+              <span class="citations"><a href="https://human-settlement.emergency.copernicus.eu/ghs_pop2023.php">JRC Global Human Settlement Layer</a></span></dd>
+            <dt>Official census groups</dt>
+            <dd>Age 65+ and all residents are the common groups. London also uses activity limitation and IMD deciles. Seattle and Portland use ACS age, disability and poverty counts and their respective eligible populations.
+              <span class="citations"><a href="https://www.nomisweb.co.uk/sources/census_2021">ONS Census 2021</a><a href="https://www.gov.uk/government/statistics/english-indices-of-deprivation-2025">English IMD 2025</a><a href="https://www.insee.fr/fr/statistiques/8647014">INSEE IRIS 2022</a><a href="https://statbel.fgov.be/fr/open-data/census-2021-population-selon-secteur-statistique-du-lieu-de-residence-sexe-et-age-m">Statbel sectors 2021</a><a href="https://www.cbs.nl/nl-nl/cijfers/detail/85318NED">CBS neighbourhoods 2022</a><a href="https://www2.census.gov/programs-surveys/acs/summary_file/2022/table-based-SF/data/5YRData/">US Census ACS 2018–2022</a></span></dd>
+            <dt>Small-area geometry</dt>
+            <dd>Census output areas, IRIS, statistical sectors, neighbourhoods and census tracts are matched to the city footprints.
+              <span class="citations"><a href="https://geoportal.statistics.gov.uk/">ONS Geography</a><a href="https://geoservices.ign.fr/contoursiris">IGN Contours IRIS</a><a href="https://statbel.fgov.be/en/open-data">Statbel open data</a><a href="https://www.pdok.nl/introductie/-/article/cbs-wijken-en-buurten">PDOK CBS geometry</a><a href="https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html">TIGER/Line tracts</a></span></dd>
+          </dl>
+        </article>
+        <article class="source-card" id="source-street">
+          <h3>Street model inputs</h3>
+          <dl>
+            <dt>Buildings, paths and terrain</dt>
+            <dd>OpenStreetMap and Overture extracts supply eligible walking lines and buildings. LiDAR-derived bare-earth and surface elevation are aligned to a 5 m working grid. The model catalog records the geometry and weather sources for each simulation.
+              <span class="citations"><a href="https://download.geofabrik.de/">Geofabrik OSM extracts</a><a href="https://docs.overturemaps.org/getting-data/">Overture data access</a></span></dd>
+            <dt>Elevation by study area</dt>
+            <dd>Environment Agency in London, AHN in the Netherlands, IGN around Paris, Lille Métropole in Lille, UrbIS in Brussels and USGS 3DEP in the Pacific Northwest.
+              <span class="citations"><a href="https://environment.data.gov.uk/DefraDataDownload/?Mode=survey">Environment Agency LiDAR</a><a href="https://www.ahn.nl/dataroom">Dutch AHN</a><a href="https://geoservices.ign.fr/lidarhd">IGN LiDAR HD</a><a href="https://www.data.gouv.fr/datasets/nuage-de-points-classifie-issu-du-lidar-scot-de-lille-metropole-comprenant-le-territoire-de-la-mel-2018-1">Lille Métropole LiDAR</a><a href="https://data.gov.be/en/datasets/8c2d921e-6a53-11ed-bfb5-010101010000">Brussels UrbIS</a><a href="https://www.usgs.gov/tools/lidarexplorer">USGS 3DEP LidarExplorer</a></span></dd>
+          </dl>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="study-areas" aria-labelledby="areas-title">
+      <h2 id="areas-title">Study boundaries and coverage</h2>
+      <p class="section-intro">Greater London uses an administrative boundary. The other cases use functional urban areas (FUAs), which include their commuting zones. The European FUA polygons come from GISCO’s 2021 1:100,000 release. These boundaries are held fixed across archived events. Street simulations have their own coverage inside each study boundary.</p>
+      <div class="table-wrap" role="region" aria-label="Study boundaries and street model coverage" tabindex="0">
+        <table class="study-table">
+          <caption>Published study polygons and 100 m walking cells for the reference street snapshot</caption>
+          <thead><tr><th scope="col">Study area</th><th scope="col">Boundary definition</th><th scope="col">Street model coverage</th><th scope="col">Boundary files</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">London</th><td>Greater London administrative polygon</td><td>Full study area · 129,280 cells</td><td><a href="https://data.london.gov.uk/dataset/statistical-gis-boundary-files-london">GLA boundary download</a><a href="data/admin/fua/London/boundary.json" download="Greater-London.geojson">Heatline GeoJSON <span class="sr-only">for London</span></a></td></tr>
+            <tr><th scope="row">Utrecht <small>NL042F</small></th><td>Eurostat GISCO FUA 2021</td><td>Full FUA · 46,814 cells</td><td><a href="https://gisco-services.ec.europa.eu/distribution/v2/urau/urau-2021-files.html">GISCO 2021 files</a><a href="data/admin/fua/Utrecht/boundary.json" download="Utrecht-FUA.geojson">Heatline GeoJSON <span class="sr-only">for Utrecht</span></a></td></tr>
+            <tr><th scope="row">Amsterdam <small>NL001F</small></th><td>Eurostat GISCO FUA 2021</td><td>Municipality within FUA · 13,276 cells</td><td><a href="https://gisco-services.ec.europa.eu/distribution/v2/urau/urau-2021-files.html">GISCO 2021 files</a><a href="data/admin/fua/Amsterdam/boundary.json" download="Amsterdam-FUA.geojson">Heatline GeoJSON <span class="sr-only">for Amsterdam</span></a></td></tr>
+            <tr><th scope="row">Paris <small>FR001F</small></th><td>Eurostat GISCO FUA 2021</td><td>Central pilot · 195 cells</td><td><a href="https://gisco-services.ec.europa.eu/distribution/v2/urau/urau-2021-files.html">GISCO 2021 files</a><a href="data/admin/fua/Paris/boundary.json" download="Paris-FUA.geojson">Heatline GeoJSON <span class="sr-only">for Paris</span></a></td></tr>
+            <tr><th scope="row">Lille <small>FR003F</small></th><td>Eurostat GISCO FUA 2021</td><td>Central pilot · 196 cells</td><td><a href="https://gisco-services.ec.europa.eu/distribution/v2/urau/urau-2021-files.html">GISCO 2021 files</a><a href="data/admin/fua/Lille/boundary.json" download="Lille-FUA.geojson">Heatline GeoJSON <span class="sr-only">for Lille</span></a></td></tr>
+            <tr><th scope="row">Brussels <small>BE001F</small></th><td>Eurostat GISCO FUA 2021, including Leuven and Mechelen</td><td>Central pilot · 196 cells</td><td><a href="https://gisco-services.ec.europa.eu/distribution/v2/urau/urau-2021-files.html">GISCO 2021 files</a><a href="data/admin/fua/Brussels_Uccle/boundary.json" download="Brussels-FUA.geojson">Heatline GeoJSON <span class="sr-only">for Brussels</span></a></td></tr>
+            <tr><th scope="row">Seattle <small>USA14F</small></th><td>OECD FUA, boundary vintage unspecified in the source layer</td><td>June 2021 archive pilot · 183 cells</td><td><a href="https://www.oecd.org/en/data/datasets/oecd-definition-of-cities-and-functional-urban-areas.html">OECD FUA downloads</a><a href="data/admin/fua/Seattle/boundary.json" download="Seattle-FUA.geojson">Heatline GeoJSON <span class="sr-only">for Seattle</span></a></td></tr>
+            <tr><th scope="row">Portland <small>USA20F</small></th><td>OECD FUA, boundary vintage unspecified in the source layer</td><td>June 2021 archive pilot · 172 cells</td><td><a href="https://www.oecd.org/en/data/datasets/oecd-definition-of-cities-and-functional-urban-areas.html">OECD FUA downloads</a><a href="data/admin/fua/Portland/boundary.json" download="Portland-FUA.geojson">Heatline GeoJSON <span class="sr-only">for Portland</span></a></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="table-note">European reference street models use 18 July 2022 at 10:52:15 UTC, the timestamp used by the 2022 street-analysis tools. Seattle and Portland have pilot inputs from the Pacific Northwest heatwave on 28 June 2021 at 20:00 UTC, available through their archived shade cases. In all cases, coverage refers to represented walking length within the model footprint.</p>
+      <p class="citations"><a href="data/admin/catalog.json">Published study and model catalog</a><a href="data/cases/catalog.json">Event catalog</a><a href="https://gisco-services.ec.europa.eu/distribution/v2/urau/geojson/URAU_RG_100K_2021_4326_FUA.geojson">Original GISCO FUA GeoJSON · WGS 84</a></p>
+    </section>
+
+    <section class="section" id="equations" aria-labelledby="equations-title">
+      <h2 id="equations-title">Methods and equations</h2>
+      <p class="section-intro">Each section identifies the calculation, the denominator or model footprint, and the atlas output that uses it.</p>
+      <nav class="equation-nav" aria-label="Calculation sections">
+        <a href="#weather">Weather</a><a href="#surface">Landsat and landscape</a><a href="#residential">Residential exposure</a>
+        <a href="#street">SOLWEIG and UTCI</a><a href="#shade">Shade</a><a href="#comparison">Cross-city comparison</a><a href="#atlas-method">Atlas</a>
+      </nav>
+
+      <article class="method-card" id="weather" aria-labelledby="weather-title">
+        <h3 id="weather-title">Event weather and station observations</h3>
+        <p>Event windows and core dates come from the <a href="data/cases/catalog.json">case catalog</a>. The global view displays the archived daily maxima on sampled land cells. The regional archive uses complete UTC days and reports a daily population-weighted statistic across valid cells.</p>
+        <h4>UTC daily aggregation and population weighting</h4>
+        <div class="equations" aria-label="Daily and regional air-temperature equations">
+          <div><math><msub><mi>T</mi><mtext>max,c,d</mtext></msub><mo>=</mo><munder><mi>max</mi><mtext>h in UTC day d</mtext></munder><msub><mi>T</mi><mtext>c,h</mtext></msub><mo>,</mo><mspace width="1em"/><msub><mi>T</mi><mtext>mean,c,d</mtext></msub><mo>=</mo><mfrac><mrow><msub><mo>∑</mo><mi>h</mi></msub><msub><mi>T</mi><mtext>c,h</mtext></msub></mrow><mn>24</mn></mfrac></math></div>
+          <div><math><msub><mi>T</mi><mtext>max,region,d</mtext></msub><mo>=</mo><mfrac><mrow><msub><mo>∑</mo><mtext>valid c</mtext></msub><msub><mi>P</mi><mi>c</mi></msub><msub><mi>T</mi><mtext>max,c,d</mtext></msub></mrow><mrow><msub><mo>∑</mo><mtext>valid c</mtext></msub><msub><mi>P</mi><mi>c</mi></msub></mrow></mfrac></math></div>
+        </div>
+        <p>Here <var>P<sub>c</sub></var> is the sum of GHS-POP 2020 residents at 100 m cell centres within weather cell <var>c</var> and the study polygon. Daily minima use the same rule with the hourly minimum. Daily means use the 24-hour average. Population coverage divides the matched weight by total boundary population. Globe values supplied in kelvin are converted using <var>T</var><sub>°C</sub> = <var>T</var><sub>K</sub> − 273.15.</p>
+        <p>The separate reference-point panel uses the supplied 1991–2020 daily mean and 90th percentile at its reference grid point. The anomaly is <var>T</var><sub>max,d</sub> − <var>T</var><sub>mean ref,d</sub>. The 15-day excess heat is ∑<sub>d</sub> max(0, <var>T</var><sub>max,d</sub> − <var>P</var><sub>90,d</sub>) in °C·days. The atlas displays the archived climatology and summary for that point.</p>
+        <details class="note-details">
+          <summary>Matched stations and Pearson correlation</summary>
+          <p>For a single station, the peak is the maximum valid reading and the mean is the arithmetic mean over available observations. For a station comparison, use the intersection <var>H</var> of exact UTC timestamps with valid values for the variable. WOW station correlations use paired temperature and weather values with at least six observations and nonzero variation in both series.</p>
+          <div class="equations" aria-label="Station difference and correlation equations">
+            <div><math><mi>Δ</mi><mo>=</mo><mfrac><mrow><msub><mo>∑</mo><mtext>t ∈ H</mtext></msub><mo>(</mo><msub><mi>x</mi><mi>t</mi></msub><mo>−</mo><msub><mi>y</mi><mi>t</mi></msub><mo>)</mo></mrow><mrow><mo>|</mo><mi>H</mi><mo>|</mo></mrow></mfrac></math></div>
+            <div><math><mi>r</mi><mo>=</mo><mfrac><mrow><mo>∑</mo><mo>(</mo><msub><mi>x</mi><mi>t</mi></msub><mo>−</mo><mover><mi>x</mi><mo>¯</mo></mover><mo>)</mo><mo>(</mo><msub><mi>y</mi><mi>t</mi></msub><mo>−</mo><mover><mi>y</mi><mo>¯</mo></mover><mo>)</mo></mrow><msqrt><mrow><mo>∑</mo><msup><mrow><mo>(</mo><msub><mi>x</mi><mi>t</mi></msub><mo>−</mo><mover><mi>x</mi><mo>¯</mo></mover><mo>)</mo></mrow><mn>2</mn></msup><mo>∑</mo><msup><mrow><mo>(</mo><msub><mi>y</mi><mi>t</mi></msub><mo>−</mo><mover><mi>y</mi><mo>¯</mo></mover><mo>)</mo></mrow><mn>2</mn></msup></mrow></msqrt></mfrac></math></div>
+          </div>
+          <p>The panels retain observation gaps. The London chart flags community peaks for review when they exceed the official UK event record. A station correlation describes co-variation over the matched period.</p>
+        </details>
+        <p class="citations"><a href="https://doi.org/10.5194/essd-13-4349-2021">Muñoz-Sabater et al. (2021) · ERA5-Land, Sect. 2</a><a href="#source-weather">Weather datasets</a><a href="https://github.com/Coldzera-010825/Heatline/blob/main/worker/event-analysis.mjs">Station calculation code</a><a href="./?city=London&amp;event=E3_2022-07#event">Open The heatwave ↗</a></p>
+      </article>
+
+      <article class="method-card" id="surface" aria-labelledby="surface-title">
+        <h3 id="surface-title">Land-surface temperature and spectral indices</h3>
+        <p>Landsat Collection 2 Level-2 surface temperature uses a USGS single-channel retrieval with thermal radiance, emissivity and atmospheric profiles. Heatline converts the delivered <code>ST_B10</code> digital numbers to °C. For the documented rebuild, valid values use DN &gt; 0 with <code>QA_PIXEL &amp; 63 = 0</code>, filtering fill, dilated cloud, cirrus, cloud, cloud shadow and snow flags.</p>
+        <div class="table-wrap" role="region" aria-label="Landsat formulas and bands" tabindex="0">
+          <table class="formula-table">
+            <caption>Landsat 8 and 9 Collection 2 Level-2 conversions</caption>
+            <thead><tr><th scope="col">Quantity</th><th scope="col">Formula</th><th scope="col">Inputs or interpretation</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">LST</th><td class="math-cell"><var>T</var><sub>s</sub> = 0.00341802 × DN + 149 − 273.15</td><td>Surface temperature in °C, using <code>ST_B10</code>.</td></tr>
+              <tr><th scope="row">Reflectance</th><td class="math-cell"><var>ρ</var> = 0.0000275 × DN − 0.2</td><td>Apply the scaling and offset to each reflectance band before computing an index.</td></tr>
+              <tr><th scope="row">NDVI</th><td class="math-cell">(ρ<sub>5</sub> − ρ<sub>4</sub>) / (ρ<sub>5</sub> + ρ<sub>4</sub>)</td><td>Near infrared and red. Vegetation context.</td></tr>
+              <tr><th scope="row">NDWI</th><td class="math-cell">(ρ<sub>3</sub> − ρ<sub>5</sub>) / (ρ<sub>3</sub> + ρ<sub>5</sub>)</td><td>Green and near infrared. Open-water context.</td></tr>
+              <tr><th scope="row">MNDWI</th><td class="math-cell">(ρ<sub>3</sub> − ρ<sub>6</sub>) / (ρ<sub>3</sub> + ρ<sub>6</sub>)</td><td>Green and shortwave infrared 1. Modified open-water index.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Landsat 8 and 9 thermal observations have a nominal 100 m sensor resolution and are delivered on the 30 m product grid. For the seven FUAs, valid Landsat temperatures are averaged onto the 100 m analysis grid. The rebuild mosaics same-day scenes by filling gaps from qualifying scenes in ascending scene cloud cover. FUA overview rasters use a coarser display grid. The detailed London LST map displays 100 m cells and the local statistics use the documented Landsat match or census window.</p>
+        <p>The atlas labels the actual overpass and distinguishes a scene in the event core from a background snapshot. Terrain overview grids represent continuous surface elevation. WorldCover grids show the dominant valid land-cover class.</p>
+        <p class="citations"><a href="https://www.usgs.gov/landsat-missions/landsat-collection-2-surface-temperature#scaling-factor">USGS · surface-temperature scaling</a><a href="https://www.usgs.gov/landsat-missions/landsat-collection-2-quality-assessment-bands">USGS · QA_PIXEL bit table</a><a href="https://www.usgs.gov/centers/eros/science/usgs-eros-archive-landsat-archives-landsat-8-9-operational-land-imager-and">USGS · sensor resolutions</a><a href="https://ntrs.nasa.gov/citations/19790049033">Tucker (1979) · NDVI</a><a href="https://doi.org/10.1080/01431169608948714">McFeeters (1996) · NDWI</a><a href="https://doi.org/10.1080/01431160600589179">Xu (2006) · MNDWI</a><a href="https://github.com/Coldzera-010825/Heatline/blob/main/prepare-fua-data.py">Mosaic and clipping code</a></p>
+      </article>
+
+      <article class="method-card" id="residential" aria-labelledby="residential-title">
+        <h3 id="residential-title">Residential exposure and group differences</h3>
+        <p>Assign the clear scene LST at each included 100 m GHS-POP cell centre. For group analyses in the seven FUAs, allocate each census unit’s group counts in proportion to its GHS-POP weights. The same allocation applies to the group’s eligible population where a separate universe is supplied.</p>
+        <div class="equations" aria-label="Census allocation and residential exposure equations">
+          <div><math><msub><mi>w</mi><mtext>i,g</mtext></msub><mo>=</mo><msub><mi>N</mi><mtext>u,g</mtext></msub><mfrac><msub><mi>P</mi><mi>i</mi></msub><mrow><msub><mo>∑</mo><mtext>j ∈ u</mtext></msub><msub><mi>P</mi><mi>j</mi></msub></mrow></mfrac></math></div>
+          <div><math><msub><mover><mi>T</mi><mo>¯</mo></mover><mi>g</mi></msub><mo>=</mo><mfrac><mrow><msub><mo>∑</mo><mtext>matched i</mtext></msub><msub><mi>w</mi><mtext>i,g</mtext></msub><msub><mi>T</mi><mi>i</mi></msub></mrow><mrow><msub><mo>∑</mo><mtext>matched i</mtext></msub><msub><mi>w</mi><mtext>i,g</mtext></msub></mrow></mfrac><mo>,</mo><mspace width="1em"/><msub><mi>C</mi><mi>g</mi></msub><mo>=</mo><mfrac><mrow><msub><mo>∑</mo><mtext>matched i</mtext></msub><msub><mi>w</mi><mtext>i,g</mtext></msub></mrow><mrow><msub><mo>∑</mo><mtext>selected i</mtext></msub><msub><mi>w</mi><mtext>i,g</mtext></msub></mrow></mfrac></math></div>
+          <div><math><mi>Δ</mi><mo>=</mo><msub><mover><mi>T</mi><mo>¯</mo></mover><mtext>group</mtext></msub><mo>−</mo><msub><mover><mi>T</mi><mo>¯</mo></mover><mtext>reference</mtext></msub><mo>,</mo><mspace width="1em"/><msub><mi>q</mi><mtext>g,≥45</mtext></msub><mo>=</mo><mfrac><mrow><msub><mo>∑</mo><mtext>matched i with Tᵢ ≥ 45</mtext></msub><msub><mi>w</mi><mtext>i,g</mtext></msub></mrow><mrow><msub><mo>∑</mo><mtext>matched i</mtext></msub><msub><mi>w</mi><mtext>i,g</mtext></msub></mrow></mfrac></math></div>
+        </div>
+        <p><var>N<sub>u,g</sub></var> is the census count for group <var>g</var> in unit <var>u</var>. <var>P<sub>i</sub></var> is the GHS-POP count in cell <var>i</var>. The allocation denominator uses the whole census unit, including the fraction outside the study boundary. A map selection keeps only the inside portion. For all-resident atlas and cross-city LST, the weights are the GHS-POP counts directly.</p>
+        <p>Matched weights have valid LST. The results report the weighted mean, match rate <var>C<sub>g</sub></var>, first-minus-reference difference and the count or share in a displayed LST band. The formula for any band replaces the 45 °C condition with that band’s bounds. The 45 °C cutoff is a descriptive surface-temperature threshold.</p>
+        <details class="note-details">
+          <summary>London census case and group map denominators</summary>
+          <p>In the detailed July 2022 London case, each ONS Output Area (OA) gets the arithmetic mean of valid native Landsat pixels in the 5 × 5 window around its geometric centroid. With <var>m</var> valid pixels, <var>T</var><sub>OA</sub> = (∑<sub>j</sub> <var>T<sub>j</sub></var>) / <var>m</var>. Use the actual 2021 OA group counts in the weighted mean. IMD deciles 1–2 and 9–10 are assigned via the neighbourhood lookup, applying IMD 2025 retrospectively.</p>
+          <p>District rankings sort the selected group’s matched mean LST. A map tile’s group share is ∑ group residents ÷ ∑ eligible residents among the matched cells in that tile. Age, deprivation, disability and poverty groups can overlap. Use the reported group coverage when comparing estimates.</p>
+        </details>
+        <p class="citations"><a href="#source-population">Population and census downloads</a><a href="https://github.com/Coldzera-010825/Heatline/blob/main/prepare-fua-census.py">Census gridding code</a><a href="https://github.com/Coldzera-010825/Heatline/blob/main/worker/london-population.mjs">London OA calculation</a><a href="https://github.com/Coldzera-010825/Heatline/blob/main/worker/case-analysis.mjs">Regional residential calculation</a><a href="./?city=London&amp;event=E3_2022-07#exposure">Open Who was exposed? ↗</a></p>
+      </article>
+
+      <article class="method-card" id="street" aria-labelledby="street-title">
+        <h3 id="street-title">Pedestrian heat exposure</h3>
+        <h4>SOLWEIG mean radiant temperature</h4>
+        <p>Heatline’s archived runs use SOLWEIG 0.1.0b96. The model estimates the shortwave and longwave radiation a person receives using sun position, terrain, building and canopy geometry, and hourly weather. The equations below represent the directional radiation balance.</p>
+        <div class="equations" aria-label="SOLWEIG radiation balance and mean radiant temperature">
+          <div><math><msub><mi>R</mi><mtext>abs</mtext></msub><mo>=</mo><msub><mo>∑</mo><mi>k</mi></msub><msub><mi>F</mi><mi>k</mi></msub><mo>(</mo><msub><mi>α</mi><mtext>sw</mtext></msub><msub><mi>K</mi><mi>k</mi></msub><mo>+</mo><msub><mi>ε</mi><mi>p</mi></msub><msub><mi>L</mi><mi>k</mi></msub><mo>)</mo></math></div>
+          <div><math><msub><mi>T</mi><mtext>mrt</mtext></msub><mo>=</mo><mroot><mfrac><msub><mi>R</mi><mtext>abs</mtext></msub><mrow><msub><mi>ε</mi><mi>p</mi></msub><mi>σ</mi></mrow></mfrac><mn>4</mn></mroot><mo>−</mo><mn>273.15</mn></math></div>
+        </div>
+        <p><var>K<sub>k</sub></var> and <var>L<sub>k</sub></var> are the shortwave and longwave fluxes in W/m² by direction. <var>F<sub>k</sub></var> is the angular weight, <var>α</var><sub>sw</sub> is shortwave absorptivity, <var>ε<sub>p</sub></var> is emissivity and <var>σ</var> is the Stefan–Boltzmann constant. The implemented solver includes geometry-dependent radiation terms. Use the model paper and manual for the full radiation scheme.</p>
+        <details class="note-details">
+          <summary>Inputs, preprocessing and time alignment</summary>
+          <p>The expanded street runs use a 5 m grid with 1.9 km model cores and a 400 m buffer on each side. Height above ground is <var>H</var> = max(DSM − DTM, 0), using co-registered surfaces. The building mask retains building heights. Outside buildings the current runs use residual heights from 2 to 30 m as a canopy proxy. Geometry dates are recorded independently of the heatwave date.</p>
+          <p>Tile-centre forcing uses linear interpolation between supported weather locations and a nearest-source fallback. It uses a four-hour warm-up. For a fractional hour <var>f</var>, air temperature, humidity and wind are interpolated as <var>x</var><sub>t</sub> = (1 − <var>f</var>)<var>x</var><sub>h</sub> + <var>f</var><var>x</var><sub>h+1</sub>. The following timestamp provides the preceding-hour shortwave mean. Wind in km/h is divided by 3.6. Walking samples use eligible clipped road and path geometry.</p>
+        </details>
+        <h4>Operational UTCI approximation</h4>
+        <p>The Universal Thermal Climate Index expresses the equivalent temperature of a reference outdoor environment for a modeled thermophysiological response. The operational approximation adds a sixth-order polynomial offset to air temperature.</p>
+        <div class="equations" aria-label="Operational UTCI polynomial and vapour-pressure equation">
+          <div><math><mtext>UTCI</mtext><mo>=</mo><msub><mi>T</mi><mi>a</mi></msub><mo>+</mo><munder><mo>∑</mo><mtext>i+j+k+l ≤ 6</mtext></munder><msub><mi>c</mi><mtext>ijkl</mtext></msub><msubsup><mi>T</mi><mi>a</mi><mi>i</mi></msubsup><msubsup><mi>v</mi><mn>10</mn><mi>j</mi></msubsup><msup><mrow><mo>(</mo><msub><mi>T</mi><mtext>mrt</mtext></msub><mo>−</mo><msub><mi>T</mi><mi>a</mi></msub><mo>)</mo></mrow><mi>k</mi></msup><msubsup><mi>p</mi><mi>a</mi><mi>l</mi></msubsup></math></div>
+          <div><math><msub><mi>p</mi><mi>a</mi></msub><mo>=</mo><mfrac><mrow><mtext>RH</mtext><mo>×</mo><mi>exp</mi><mo>(</mo><mi>F</mi><mo>(</mo><mi>K</mi><mo>)</mo><mo>)</mo></mrow><mn>100000</mn></mfrac><mo>,</mo><mspace width="1em"/><mi>K</mi><mo>=</mo><msub><mi>T</mi><mi>a</mi></msub><mo>+</mo><mn>273.15</mn></math></div>
+        </div>
+        <p><var>T<sub>a</sub></var> and <var>T</var><sub>mrt</sub> are in °C, <var>v</var><sub>10</sub> is the 10 m wind in m/s, <var>p<sub>a</sub></var> is vapour pressure in kPa and RH is relative humidity in percent. The exact coefficient table used by Heatline is linked below.</p>
+        <details class="note-details">
+          <summary>Vapour-pressure coefficients</summary>
+          <div class="equations" aria-label="Saturation vapour-pressure logarithm">
+            <div><code>F(K) = 2.7150305 ln(K) − 2836.5744/K² − 6028.076559/K + 19.54263612</code></div>
+            <div><code>       − 0.02737830188 K + 0.000016261698 K² + 7.0229056×10⁻¹⁰ K³ − 1.8680009×10⁻¹³ K⁴</code></div>
+          </div>
+        </details>
+        <h4>Walking-length aggregation</h4>
+        <p>The Worker evaluates UTCI for each modelled radiation sample before aggregation. A sample <var>s</var> has UTCI <var>U<sub>s</sub></var> and represented path length <var>ℓ<sub>s</sub></var>. The published 100 m cells report a length-weighted UTCI and length <var>L<sub>i</sub></var>. Expanded runs retain cells with at least 20 m of total eligible path. A drawn selection uses the published sampling points for inclusion.</p>
+        <div class="equations" aria-label="Walking-network weighting and strong-heat share">
+          <div><math><msub><mi>U</mi><mi>i</mi></msub><mo>=</mo><mfrac><mrow><msub><mo>∑</mo><mtext>s ∈ i</mtext></msub><msub><mi>ℓ</mi><mi>s</mi></msub><msub><mi>U</mi><mi>s</mi></msub></mrow><mrow><msub><mo>∑</mo><mtext>s ∈ i</mtext></msub><msub><mi>ℓ</mi><mi>s</mi></msub></mrow></mfrac><mo>,</mo><mspace width="1em"/><msub><mover><mi>U</mi><mo>¯</mo></mover><mi>A</mi></msub><mo>=</mo><mfrac><mrow><msub><mo>∑</mo><mtext>i ∈ A</mtext></msub><msub><mi>L</mi><mi>i</mi></msub><msub><mi>U</mi><mi>i</mi></msub></mrow><mrow><msub><mo>∑</mo><mtext>i ∈ A</mtext></msub><msub><mi>L</mi><mi>i</mi></msub></mrow></mfrac></math></div>
+          <div><math><msub><mi>q</mi><mtext>strong</mtext></msub><mo>=</mo><mfrac><mrow><msub><mo>∑</mo><mtext>i ∈ A with Uᵢ ≥ 32</mtext></msub><msub><mi>L</mi><mi>i</mi></msub></mrow><mrow><msub><mo>∑</mo><mtext>i ∈ A</mtext></msub><msub><mi>L</mi><mi>i</mi></msub></mrow></mfrac></math></div>
+        </div>
+        <p>The 1 °C histogram uses the same length share within each band. Hotspots rank the highest cell UTCI values. Large selections can display a 500 m weighted overview and return to 100 m detail on zoom. Statistics use the 100 m cells.</p>
+        <details class="note-details" id="stress-thresholds">
+          <summary>Heat-stress categories used in the results</summary>
+          <div class="table-wrap">
+            <table>
+              <caption>Warm-side thresholds from Bröde et al. (2012), Table 3. Heatline groups values below 26 °C for this view.</caption>
+              <thead><tr><th scope="col">UTCI in °C</th><th scope="col">Heatline category</th></tr></thead>
+              <tbody><tr><td>&lt;26</td><td>Below 26 °C</td></tr><tr><td>26 to &lt;32</td><td>Moderate</td></tr><tr><td>32 to &lt;38</td><td>Strong</td></tr><tr><td>38 to &lt;46</td><td>Very strong</td></tr><tr><td>≥46</td><td>Extreme</td></tr></tbody>
+            </table>
+          </div>
+        </details>
+        <p class="citations"><a href="https://doi.org/10.1007/s00484-008-0162-7">Lindberg, Holmer &amp; Thorsson (2008) · SOLWEIG radiation model</a><a href="https://umep-docs.readthedocs.io/en/latest/OtherManuals/SOLWEIG.html">SOLWEIG manual · radiation and inputs</a><a href="https://github.com/UMEP-dev/solweig">SOLWEIG solver source</a><a href="https://doi.org/10.1007/s00484-011-0454-1">Bröde et al. (2012) · Table 3 and Supplement ESM 3</a><a href="https://github.com/Coldzera-010825/Heatline/blob/main/worker/utci-coefficients.mjs">Exact UTCI coefficients</a><a href="https://github.com/Coldzera-010825/Heatline/blob/main/prepare-city-street.py">Street model preparation code</a><a href="./?city=London&amp;event=E3_2022-07#street">Open At street level ↗</a></p>
+      </article>
+
+      <article class="method-card" id="shade" aria-labelledby="shade-title">
+        <h3 id="shade-title">Paired shade scenario</h3>
+        <p>An eligible 100 m cell contains at least 20 m of represented walking length in sun and at least 20 m in building shade. Let <var>f</var> be the requested fraction from 0 to 1, <var>S<sub>i</sub></var> the sunlit length, <var>L<sub>i</sub></var> the total length and <var>U</var><sub>sun,i</sub> and <var>U</var><sub>shade,i</sub> the existing paired, length-weighted UTCIs.</p>
+        <div class="equations" aria-label="Paired shade reallocation and selection reduction">
+          <div><math><msub><mi>D</mi><mi>i</mi></msub><mo>=</mo><mi>f</mi><msub><mi>S</mi><mi>i</mi></msub><mo>(</mo><msub><mi>U</mi><mtext>sun,i</mtext></msub><mo>−</mo><msub><mi>U</mi><mtext>shade,i</mtext></msub><mo>)</mo><mo>,</mo><mspace width="1em"/><msubsup><mi>U</mi><mi>i</mi><mo>′</mo></msubsup><mo>=</mo><msub><mi>U</mi><mi>i</mi></msub><mo>−</mo><mfrac><msub><mi>D</mi><mi>i</mi></msub><msub><mi>L</mi><mi>i</mi></msub></mfrac></math></div>
+          <div><math><msub><mi>Δ</mi><mtext>paired</mtext></msub><mo>=</mo><mfrac><mrow><msub><mo>∑</mo><mtext>eligible i</mtext></msub><msub><mi>D</mi><mi>i</mi></msub></mrow><mrow><msub><mo>∑</mo><mtext>eligible i</mtext></msub><msub><mi>L</mi><mi>i</mi></msub></mrow></mfrac><mo>,</mo><mspace width="1em"/><msub><mi>Δ</mi><mtext>selection</mtext></msub><mo>=</mo><mfrac><mrow><msub><mo>∑</mo><mtext>eligible i</mtext></msub><msub><mi>D</mi><mi>i</mi></msub></mrow><mrow><msub><mo>∑</mo><mtext>all modelled i</mtext></msub><msub><mi>L</mi><mi>i</mi></msub></mrow></mfrac></math></div>
+        </div>
+        <p>The scenario assigns existing building-shade UTCI to <var>fS<sub>i</sub></var> metres of sunlit path and holds the weather, geometry and other routes fixed. Paired coverage is the paired length divided by the total modelled selection length. Where the full modelled selection is available, the second estimate uses that denominator. The separate sun–shade contrast reports the unweighted median of <var>U</var><sub>sun,i</sub> − <var>U</var><sub>shade,i</sub> across eligible cells.</p>
+        <p class="citations"><a href="#street">Radiation and UTCI equations</a><a href="https://github.com/Coldzera-010825/Heatline/blob/main/worker/event-analysis.mjs">Heatline scenario implementation</a><a href="./?city=London&amp;event=E3_2022-07#shade">Open What-if shade ↗</a></p>
+      </article>
+
+      <article class="method-card" id="comparison" aria-labelledby="comparison-title">
+        <h3 id="comparison-title">Cross-city comparisons</h3>
+        <h4>Residential LST</h4>
+        <p>Heatline reports a pairwise difference only when both snapshots fall within the event core, share the same UTC date, fall within 90 minutes in local solar time and match at least 80% of each area’s estimated residents. The local-solar-time separation is computed from the UTC time difference and the study-area centre longitudes.</p>
+        <div class="equations" aria-label="Solar time gap and cross-city residential differences">
+          <div><math><mtext>Gap</mtext><mo>=</mo><mo>|</mo><msub><mi>t</mi><mi>A</mi></msub><mo>−</mo><msub><mi>t</mi><mi>B</mi></msub><mo>+</mo><mn>4</mn><mo>(</mo><msub><mi>λ</mi><mi>A</mi></msub><mo>−</mo><msub><mi>λ</mi><mi>B</mi></msub><mo>)</mo><mo>|</mo></math></div>
+          <div><math><msub><mi>Δ</mi><mtext>LST</mtext></msub><mo>=</mo><msub><mover><mi>T</mi><mo>¯</mo></mover><mi>A</mi></msub><mo>−</mo><msub><mover><mi>T</mi><mo>¯</mo></mover><mi>B</mi></msub><mo>,</mo><mspace width="1em"/><msub><mi>Δ</mi><mtext>pp</mtext></msub><mo>=</mo><mn>100</mn><mo>(</mo><msub><mi>q</mi><mtext>A,≥45</mtext></msub><mo>−</mo><msub><mi>q</mi><mtext>B,≥45</mtext></msub><mo>)</mo></math></div>
+        </div>
+        <p><var>t</var> is in minutes and longitude <var>λ</var> is in degrees east. <var>q</var> is the matched residential share above or equal to the 45 °C LST threshold. When a comparison condition fails, the cards report each available dated snapshot with its own coverage.</p>
+        <h4>Walking UTCI</h4>
+        <p>The walking comparison uses same-time 100 m pilot grids from the same SOLWEIG engine and 5 m terrain workflow. It reports <var>Δ</var><sub>UTCI</sub> = <var>Ū</var><sub>A</sub> − <var>Ū</var><sub>B</sub> and each pilot’s path-length distribution. Its comparison domain is the two modelled pilots, even where a single-city view has a larger model. The active comparison uses the July 2022 event.</p>
+        <p class="citations"><a href="#residential">Residential weights and coverage</a><a href="#street">Walking weights and model time</a><a href="data/admin/catalog.json">Comparison settings in the catalog</a><a href="./?compareEvent=E2_2020-08&amp;a=Paris&amp;b=Amsterdam&amp;metric=surface#compare">Open the Paris–Amsterdam LST comparison ↗</a><a href="./?compareEvent=E3_2022-07&amp;a=London&amp;b=Paris&amp;metric=street#compare">Open the London–Paris UTCI comparison ↗</a></p>
+      </article>
+
+      <article class="method-card" id="atlas-method" aria-labelledby="atlas-method-title">
+        <h3 id="atlas-method-title">Atlas and the numerical workflow</h3>
+        <p>Atlas interprets requests for a city, event, map layer, selection or analysis tool. It uses built-in routing and can use Gemini tool selection where configured. Buttons and Atlas submit to the same validated analysis endpoints. The calculation code reads the published datasets and returns the statistics and map values for the chosen scope.</p>
+        <p>For a new street model, <code>prepare-city-street.py</code> runs SOLWEIG and packages the dated radiant-temperature and walking-length inputs. At request time, the Worker evaluates UTCI and the paired shade scenario from those inputs. The compatibility endpoint for the older London grid aggregates stored UTCI values.</p>
+        <details class="note-details">
+          <summary>Map values and 3D styling</summary>
+          <p>Raster overviews average valid continuous values and take the dominant class for land cover. For a numeric legend with limits <var>min</var> and <var>max</var>, 3D bars represent values at or above <var>min</var> + 0.70(<var>max</var> − <var>min</var>). That cutoff applies to display. The analysis uses the full set of valid values in the selection.</p>
+          <p class="citations"><a href="https://docs.mapbox.com/mapbox-gl-js/guides/">Mapbox GL JS basemap renderer</a><a href="https://github.com/Coldzera-010825/Heatline/blob/main/dist/client/event-layers.js">Map layer styling code</a></p>
+        </details>
+        <p class="citations"><a href="https://github.com/Coldzera-010825/Heatline/blob/main/worker/assistant.mjs">Atlas tool routing</a><a href="https://github.com/Coldzera-010825/Heatline/blob/main/worker/index.mjs">Analysis endpoints</a><a href="https://github.com/Coldzera-010825/Heatline/blob/main/DATA-METHODS.md">Rebuild instructions</a></p>
+      </article>
+    </section>
+
+    <section class="section" id="research-use" aria-labelledby="research-use-title">
+      <div class="research-work">
+        <div>
+          <h2 id="research-use-title">Using Heatline in research</h2>
+          <p class="section-intro">Use the atlas to inspect a historical case, check data coverage and design follow-up analyses or field observations.</p>
+        </div>
+        <dl>
+          <dt>Specify the exposure measure</dt>
+          <dd>Residential LST characterises surfaces near estimated home locations. Walking UTCI characterises modelled outdoor thermal stress along represented paths. Personal exposure over a day would require movement and time-use data.</dd>
+          <dt>Compare the sampling and coverage</dt>
+          <dd>Record the polygon, event UTC time, pixels or routes included, group vintage and matched denominator. Use matched coverage and like-for-like times when interpreting differences.</dd>
+          <dt>Choose locations to validate in the field</dt>
+          <dd>Use modelled hotspots and paired sun–shade contrasts to select locations for synchronized measurements. Quantifying health outcomes or the effect of a planned shade intervention requires additional evidence.</dd>
+        </dl>
+      </div>
+    </section>
+  </main>
+  <footer class="research-footer">
+    <div class="wrap"><b>Heatline · Extreme Events Atlas</b><a href="./#globe">Back to the atlas</a><a href="https://github.com/Coldzera-010825/Heatline">Source repository</a><a href="https://github.com/Coldzera-010825/Heatline/releases">Release history</a></div>
+  </footer>
+</body>
+</html>

@@ -155,13 +155,15 @@ function compactCensusMap(tiles, center, metres) {
   };
 }
 
-function compareResidents(city, snapshot, rows, bounds, body, bins) {
+function compareResidents(city, snapshot, rows, bounds, body, { bins, threshold }) {
   const labels = city.census.groups;
   const group = body.group ?? "older", reference = body.reference ?? (group === "all" ? "older" : "all");
   if (!Object.hasOwn(labels, group) || !Object.hasOwn(labels, reference) || group === reference) {
     return problem("clarify", "Choose two different supported groups: " + Object.values(labels).join("; ") + ".");
   }
-  const totals = Object.fromEntries(Object.keys(labels).map(key => [key, { count: 0, matched: 0, heat: 0, bins: Array(bins.length + 1).fill(0) }]));
+  const totals = Object.fromEntries(Object.keys(labels).map(key => [key, {
+    count: 0, matched: 0, heat: 0, above: 0, bins: Array(bins.length + 1).fill(0),
+  }]));
   const groupTotals = Object.entries(totals);
   const byDistrict = new Map();
   let matched = 0, rowCount = 0;
@@ -170,6 +172,7 @@ function compareResidents(city, snapshot, rows, bounds, body, bins) {
     const [, , temperature, weights, , district] = row;
     rowCount++;
       const valid = Number.isFinite(temperature);
+      const above = valid && temperature >= threshold;
       if (valid) matched++;
       let bin = 0;
       while (bin < bins.length && temperature >= bins[bin]) bin++;
@@ -180,6 +183,7 @@ function compareResidents(city, snapshot, rows, bounds, body, bins) {
         if (!valid) continue;
         total.matched += n;
         total.heat += temperature * n;
+        if (above) total.above += n;
         total.bins[bin] += n;
       }
       if (body.rank && district && Number.isFinite(weights[group])) {
@@ -203,7 +207,7 @@ function compareResidents(city, snapshot, rows, bounds, body, bins) {
   const format = n => Number(n.toFixed(2));
   const groups = Object.fromEntries(Object.entries(totals).map(([key, t]) => [key, {
     label: labels[key], count: Math.round(t.count), matched: Math.round(t.matched), mean: t.matched ? format(t.heat / t.matched) : null,
-    coverage: t.count ? t.matched / t.count : null, atLeast45: t.matched ? Math.round(t.bins.at(-1)) : null,
+    coverage: t.count ? t.matched / t.count : null, atLeast45: t.matched ? Math.round(t.above) : null,
   }]));
   const a = totals[group], b = totals[reference], compared = a.matched && b.matched;
   const delta = compared ? format(a.heat / a.matched - b.heat / b.matched) : null;
@@ -381,11 +385,11 @@ export async function analyzeArchive(body, progress, read, readAdmin) {
           const [points, temperatures, index] = await Promise.all([readAdmin(city.populationPacked, "packed-index"),
             readAdmin(snapshot.surfacePacked, "packed-index"), readAdmin(censusConfig.file, "packed-index")]);
           return compareResidents({ ...city, census: censusConfig }, snapshot, packedResidents(points, temperatures, index, censusConfig, bounds),
-            bounds, body, catalog.comparison.bins);
+            bounds, body, catalog.comparison);
         }
         const [points, temperatures, census] = await Promise.all([readAdmin(city.census.population ?? city.population, "packed-json"),
           readAdmin(snapshot.census.surface ?? snapshot.surface, "packed-json"), readAdmin(snapshot.census.file ?? city.census.file, "packed-json")]);
-        return compareResidents(city, snapshot, matchedPoints(points, temperatures, bounds, census, city.census.keys), bounds, body, catalog.comparison.bins);
+        return compareResidents(city, snapshot, matchedPoints(points, temperatures, bounds, census, city.census.keys), bounds, body, catalog.comparison);
       }
       let surface, packedMap, metricTiles;
       if (snapshot.surfacePacked) {

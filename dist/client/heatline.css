@@ -42,6 +42,9 @@ button:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visi
 .analysis-panel details,#global-method{font-size:12px;border-top:1px solid var(--line);padding-top:10px;margin-top:10px}
 .analysis-panel summary,#global-method summary{cursor:pointer;color:#e8c4a3}
 .analysis-panel details p,#global-method p{font-size:12px;margin:8px 0 0}
+.method-link{display:inline-block;margin-top:9px;color:#f0b076;text-underline-offset:3px}
+.method-link:hover{color:#ffdbb0}
+.method-link:focus-visible{outline:2px solid var(--amber);outline-offset:3px}
 .analysis-panel details a{color:#f6c39a;text-decoration:underline;text-underline-offset:2px}
 .atlas-guide form{display:flex;gap:7px;padding:10px 12px;border-top:1px solid var(--line)}
 .atlas-guide input{flex:1;min-width:0;border:1px solid #685545;background:#171411;color:#f3e6d7;padding:8px;font-size:12px}

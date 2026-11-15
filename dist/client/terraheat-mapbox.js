@@ -29,6 +29,7 @@
   const globalChapter = ["globe", "", "July heat around the world", "Replay daily maximum air temperature over land from 13 to 19 July 2022.",
     "The globe replays daily maximum air temperature on 13–19 July 2022 as regional context. City markers open their own historical event archives. Each layer and analysis shows its actual date.",
     ["Open the Amsterdam case", "Compare Paris and Amsterdam in 2020", "Show 18 July"]];
+  const methodSections = ["weather", "residential", "street", "shade", "comparison"];
   if (!window.mapboxgl || !window.TERRAHEAT_MAPBOX_TOKEN || !L || !R || !A || !window.polygonClipping) {
     $("map-status").textContent = "Mapbox could not load. Check your connection.";
     return;
@@ -1939,6 +1940,7 @@
     $("chapter-title").textContent = title;
     $("chapter-copy").textContent = copy;
     $("method-copy").textContent = method;
+    $("method-link").href = "methods.html#" + (methodSections[stage] ?? "weather");
     if (stage < 0) $("global-method-copy").textContent = method;
     $("prompt").placeholder = stage === 2 ? "Ask Atlas about your selection…" : "Ask Atlas about the heatwave…";
     $("layer-select").value = cityLayer;
