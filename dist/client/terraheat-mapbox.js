@@ -2084,10 +2084,7 @@
     if (JSON.stringify(digest).length > 12000) digest = digestOf(result, 2);
     if (JSON.stringify(digest).length > 12000) return undefined;
     try {
-      const reply = await Promise.race([
-        receive("/api/chat", { narrate: { question, digest } }, () => {}),
-        wait(16000).then(() => null),
-      ]);
+      const reply = await receive("/api/chat", { narrate: { question, digest } }, () => {});
       const text = typeof reply?.reply === "string" ? reply.reply.trim() : "";
       return text || undefined;
     } catch {
