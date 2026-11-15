@@ -154,7 +154,7 @@
       <p class="section-intro">Each section identifies the calculation, the denominator or model footprint, and the atlas output that uses it.</p>
       <nav class="equation-nav" aria-label="Calculation sections">
         <a href="#weather">Weather</a><a href="#surface">Landsat and landscape</a><a href="#residential">Residential exposure</a>
-        <a href="#street">SOLWEIG and UTCI</a><a href="#shade">Shade</a><a href="#comparison">Cross-city comparison</a><a href="#atlas-method">Atlas</a>
+        <a href="#street">SOLWEIG and UTCI</a><a href="#shade">Shade</a><a href="#review">Street review</a><a href="#comparison">Cross-city comparison</a><a href="#atlas-method">Atlas</a>
       </nav>
 
       <article class="method-card" id="weather" aria-labelledby="weather-title">
@@ -275,6 +275,15 @@
         </div>
         <p>The scenario assigns existing building-shade UTCI to <var>fS<sub>i</sub></var> metres of sunlit path and holds the weather, geometry and other routes fixed. Paired coverage is the paired length divided by the total modelled selection length. Where the full modelled selection is available, the second estimate uses that denominator. The separate sun–shade contrast reports the unweighted median of <var>U</var><sub>sun,i</sub> − <var>U</var><sub>shade,i</sub> across eligible cells.</p>
         <p class="citations"><a href="#street">Radiation and UTCI equations</a><a href="https://github.com/Coldzera-010825/Heatline/blob/main/worker/event-analysis.mjs">Heatline scenario implementation</a><a href="./?city=London&amp;event=E3_2022-07#shade">Open What-if shade ↗</a></p>
+      </article>
+
+      <article class="method-card" id="review" aria-labelledby="review-title">
+        <h3 id="review-title">Field review of the walking network</h3>
+        <p>The review recomputes 100 m walking-cell UTCI and length by shade class for the selected city, model time and rectangle. It uses the same SOLWEIG inputs, UTCI equation and Act 4 building-shade assumption. In the area total, unpaired walking length retains its baseline. The paired share identifies the length on which the projected change depends. The 500 m overview weights its source cells by walking length.</p>
+        <p>Candidate locations are ordered by baseline UTCI then sunlit metres, among cells containing modelled sunlit walking length. The field-check group selects questions about who waits, walks or rests at the location. Uptake, accessibility and site conditions require observations.</p>
+        <p>The London street overlay reconstructs SOLWEIG direct-beam transmittance from 5 m terrain and surface heights in 1.9 km core tiles with 400 m buffers. It follows the historical model’s radiation interval and local solar geometry. Along each clipped OpenStreetMap way, the model checks samples at approximately 5 m spacing. An all-object transmittance of at least 0.8 indicates sun. A building-only value below 0.5 indicates building shade for the remaining samples. An all-object value below 0.5 then indicates canopy shade, with other valid samples classed as partial shade.</p>
+        <p>Length along the clipped way joins consecutive samples of the same class. Each displayed segment carries an original OSM way ID, its endpoints and the model time. These are modelled conditions along candidate walking centre-lines. The 2026-11-05 OSM snapshot provides the geometry for the 2022 weather replay. The report records the snapshot used and keeps the Act 4 temperature comparison at walking-cell scale.</p>
+        <p class="citations"><a href="#shade">Paired shade formula</a><a href="data/admin/street-review/London/E3_2022-07/manifest.json">London street shade inputs</a><a href="https://www.openstreetmap.org/copyright">OpenStreetMap attribution</a><a href="./?city=London&amp;event=E3_2022-07#review">Open Review &amp; advise ↗</a></p>
       </article>
 
       <article class="method-card" id="comparison" aria-labelledby="comparison-title">

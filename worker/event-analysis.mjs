@@ -114,6 +114,10 @@ function timesLabel(time) {
   return time.slice(8, 10) + " July, " + time.slice(11, 16) + " UTC";
 }
 
+export function shadeHeatReduction(sunlitLength, sunUtci, shadeUtci, shadePercent) {
+  return shadePercent / 100 * sunlitLength * (sunUtci - shadeUtci);
+}
+
 async function analyzeShade({ bounds, shadePercent, timeUtc = snapshot, place = "the central London pilot", source, coverage, latitude, networkHeat,
   mapDetailLimit = 14000, compact = false }, progress, readEvent) {
   if (bounds != null && !validBounds(bounds)) return problem("clarify", "Draw a valid rectangular area.");
@@ -136,7 +140,7 @@ async function analyzeShade({ bounds, shadePercent, timeUtc = snapshot, place = 
   const features = [];
   for (const [lon, lat, length, sunLength, shadeLength, base, sun, shade, ring] of rows) {
     const changed = shadePercent / 100 * sunLength;
-    const difference = changed * (sun - shade);
+    const difference = shadeHeatReduction(sunLength, sun, shade, shadePercent);
     total += length;
     sunTotal += sunLength;
     converted += changed;

@@ -9,7 +9,7 @@ const contains = (bounds, x, y) => bounds[0] <= x && x <= bounds[2] && bounds[1]
 const noCells = () => ({ ok: false, status: "empty", reply: "No modelled walking cells in the selected area. Move the selection onto covered routes." });
 const detailLimit = 14000;
 
-async function evaluateCityStreet(model, bounds, shade, detail, progress, readAdmin) {
+export async function evaluateCityStreet(model, bounds, shade, detail, progress, readAdmin, includeShadeLengths = false) {
   const shards = model.shards.filter(shard => overlaps(shard.bounds, bounds));
   const rows = [], pairs = [];
   const footprint = modelFootprint(model);
@@ -18,12 +18,12 @@ async function evaluateCityStreet(model, bounds, shade, detail, progress, readAd
     const batch = await Promise.all(shards.slice(i, i + 4).map(shard => readAdmin(shard.file, "packed-json")));
     for (const tile of batch.flat()) {
       if (!overlaps(tile.bounds, bounds)) continue;
-      const selected = evaluateStreetGrid(tile, tile.weather, (lon, lat) => contains(bounds, lon, lat) && footprint(lon, lat));
+      const selected = evaluateStreetGrid(tile, tile.weather, (lon, lat) => contains(bounds, lon, lat) && footprint(lon, lat), includeShadeLengths);
       for (const row of selected.rows) rows.push(row);
       if (shade) for (const row of selected.pairs) pairs.push(row);
-      if (shade || rows.length > detail) {
-        for (const row of selected.rows) row.length = 4;
-      }
+      if (includeShadeLengths) {
+        if (rows.length > detail) for (const row of selected.rows) row[4] = undefined;
+      } else if (shade || rows.length > detail) for (const row of selected.rows) row.length = 4;
       if (pairs.length > detail) {
         for (const row of selected.pairs) row.length = 8;
       }

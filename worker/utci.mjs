@@ -26,7 +26,7 @@ export function utciAtWeather({ airC, humidity, wind }) {
 // Grouped 5 m model samples: Tmrt followed by represented lengths in sun,
 // building shade, canopy shade and partial shade. Compute per sample band
 // before aggregating; UTCI at the mean Tmrt is a different calculation.
-export function evaluateStreetGrid(grid, weather, includes = () => true) {
+export function evaluateStreetGrid(grid, weather, includes = () => true, includeShadeLengths = false) {
   const utci = utciAtWeather(weather), rows = [], pairs = [];
   for (const [lon, lat, , , ring, samples] of grid.rows) {
     if (!includes(lon, lat)) continue;
@@ -44,7 +44,9 @@ export function evaluateStreetGrid(grid, weather, includes = () => true) {
     }
     const total = length.reduce((a, b) => a + b, 0);
     const baseline = heat.reduce((a, b) => a + b, 0) / total;
-    rows.push([lon, lat, Number(baseline.toFixed(2)), total, ring]);
+    const row = [lon, lat, Number(baseline.toFixed(2)), total, ring];
+    if (includeShadeLengths) row.push(length);
+    rows.push(row);
     if (length[0] + .0005 >= 20 && length[1] + .0005 >= 20) {
       pairs.push([lon, lat, total, length[0], length[1], baseline, heat[0] / length[0], heat[1] / length[1], ring]);
     }
