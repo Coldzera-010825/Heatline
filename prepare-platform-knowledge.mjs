@@ -35,6 +35,10 @@ const aliasGroups = {
   weather: ["weather", "temperature", "humidity", "wind", "气温", "湿度", "风速"],
   station: ["station", "wow", "noaa", "气象站", "观测站"],
   atlas: ["atlas", "heatline", "平台", "网站"],
+  workspace: ["research workspace", "workspace", "工作区", "研究空间"],
+  imports: ["upload", "import", "input format", "geotiff", "geojson", "csv", "上传", "导入", "文件格式"],
+  exports: ["export", "download", "reproducibility", "导出", "下载", "复现"],
+  retention: ["expiry", "expired", "retention", "seven days", "保存多久", "保留", "有效期", "过期"],
 };
 
 const entities = {
@@ -73,7 +77,10 @@ function markdownToText(markdown) {
   return markdown
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/```[\s\S]*?```/g, block => block.replace(/```\w*/g, "").trim())
-    .replace(/[|*_`>#]/g, " ")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/`/g, "")
+    .replace(/^\s*#{1,6}\s+/gm, "")
+    .replace(/\|/g, " ")
     .replace(/[ \t]+/g, " ")
     .replace(/ *\n */g, "\n")
     .split("\n")
@@ -92,14 +99,26 @@ function keywordsFor(title, text) {
 }
 
 const LIMIT = 1600;
+const entries = [];
 
-function entry(id, title, body) {
-  const text = body.length > LIMIT ? body.slice(0, LIMIT).replace(/\s+\S*$/, "") + "…" : body;
-  return { id, title, text, keywords: keywordsFor(title, text) };
+function addEntries(id, title, body) {
+  for (let part = 1, remaining = body; remaining.length; part++) {
+    let end = Math.min(remaining.length, LIMIT);
+    if (end < remaining.length) {
+      const newline = remaining.lastIndexOf("\n", end);
+      const space = remaining.lastIndexOf(" ", end);
+      if (newline >= LIMIT / 2) end = newline;
+      else if (space > 0) end = space;
+    }
+    const text = remaining.slice(0, end).trim();
+    const partId = part === 1 ? id : `${id}-${part}`;
+    const partTitle = part === 1 ? title : `${title} (part ${part})`;
+    entries.push({ id: partId, title: partTitle, text, keywords: keywordsFor(title, text) });
+    remaining = remaining.slice(end).trimStart();
+  }
 }
 
 const html = readFileSync(HTML_PATH, "utf8");
-const entries = [];
 
 // Standalone cards carry one method or one dataset each.
 for (const match of html.matchAll(/<article([^>]*)>([\s\S]*?)<\/article>/gi)) {
@@ -108,41 +127,25 @@ for (const match of html.matchAll(/<article([^>]*)>([\s\S]*?)<\/article>/gi)) {
   const title = htmlToText(/<h[234][^>]*>([\s\S]*?)<\/h[234]>/i.exec(body)?.[1] ?? "").trim();
   const text = htmlToText(body.replace(/<h[234][^>]*>[\s\S]*?<\/h[234]>/i, ""));
   if (!id || !title || text.length < 80) continue;
-  entries.push(entry(id, title, text));
+  addEntries(id, title, text);
 }
 
 // The research-use section has no cards, so take its prose directly.
 const research = /<section[^>]*id="research-use"[^>]*>([\s\S]*?)<\/section>/i.exec(html)?.[1];
 if (research) {
   const text = htmlToText(research.replace(/<h2[^>]*>[\s\S]*?<\/h2>/i, ""));
-  if (text.length > 80) entries.push(entry("research-use", "Research use and limitations", text));
+  if (text.length > 80) addEntries("research-use", "Research use and limitations", text);
 }
 
 // DATA-METHODS.md is the maintainer-facing summary and covers the delivery,
 // coverage table and rebuild commands in plainer language than the page.
 const markdown = readFileSync(MARKDOWN_PATH, "utf8");
 const [mainSection, ...rest] = markdown.split(/^## /m);
-const markdownText = markdownToText(mainSection);
-// The summary is longer than one entry, so keep it in reading-order chunks
-// instead of truncating the coverage table away.
-const chunks = [];
-let current = "";
-for (const line of markdownText.split("\n")) {
-  if (current.length + line.length > 3000 && current) {
-    chunks.push(current);
-    current = "";
-  }
-  current += (current ? "\n" : "") + line;
-}
-if (current) chunks.push(current);
-chunks.forEach((chunk, index) => {
-  const suffix = chunks.length > 1 ? " (part " + (index + 1) + ")" : "";
-  entries.push(entry("data-methods-" + (index + 1), "Data sources, coverage and calculation" + suffix, chunk));
-});
+addEntries("data-methods", "Data sources, coverage and calculation", markdownToText(mainSection));
 for (const section of rest) {
   const [heading, ...lines] = section.split("\n");
   const text = markdownToText(lines.join("\n"));
-  if (text.length > 60) entries.push(entry("md-" + heading.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-"), heading.trim(), text));
+  if (text.length > 60) addEntries("md-" + heading.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-"), heading.trim(), text);
 }
 
 // The case catalogue is the authoritative list of supported places and events,
@@ -152,11 +155,11 @@ const cityNames = Object.values(catalog.cities ?? {}).map(city => city.name);
 const eventIds = [...new Set(readdirSync("dist/client/data/events")
   .filter(name => name.endsWith(".bin"))
   .map(name => name.split("-").slice(0, 2).join("-")))].sort();
-entries.push(entry("study-areas", "Study areas and archived events",
+addEntries("study-areas", "Study areas and archived events",
   "Heatline archives " + cityNames.length + " city cases: " + cityNames.join(", ") + ". " +
   "The dated events are " + eventIds.join(", ") + ", one per heat episode. " +
   "Pedestrian UTCI, Census residential analysis and the paired shade scenario are available where the " +
-  "inputs exist; London carries the full walking-network chapter for 2022."));
+  "inputs exist. The documented full 2022 walking-network footprints include Greater London and the Utrecht FUA.");
 
 
 const seen = new Set();

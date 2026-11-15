@@ -57,6 +57,15 @@ for (const [region, city] of Object.entries(admin.cities)) {
 }
 const paris = archiveCase("Paris", "E2_2020-08");
 const ask = (message, archiveCase, context = {}) => api({ message, archiveCase, dispatch: true, ...context }, "chat");
+const importMethods = await ask("研究工作区支持什么文件格式？", paris, { chapter: 2 });
+assert.equal(importMethods.action.type, "answer");
+assert.match(importMethods.reply, /GeoJSON.*GeoTIFF.*CSV/i);
+const retentionMethods = await ask("研究工作区的数据保留多久？");
+assert.equal(retentionMethods.action.type, "answer");
+assert.match(retentionMethods.reply, /seven days/i);
+const fieldMethods = await ask("Field priority score 公式是什么？", archiveCase("London"), { chapter: 6 });
+assert.equal(fieldMethods.action.type, "answer");
+assert.match(fieldMethods.reply, /P_i,g = 100/);
 assert.deepEqual((await ask("Switch to 3D bars", paris)).action, { type: "view", view: "bars" });
 assert.equal((await ask("显示2020年8月7日 10:40 的地表温度", paris)).action.layer, "lst_c");
 const wrongOverpass = await ask("Show Landsat LST on 8 August 2020", paris);
@@ -67,6 +76,7 @@ assert.equal((await ask("Show me London's LST")).action.layer, "lst");
 assert.equal((await ask("Show London LST on 17 July 2022")).status, "clarify");
 assert.equal((await ask("Calculate pedestrian UTCI in my selection", undefined, { chapter: 3, studyArea: true })).status, "clarify");
 assert.equal((await ask("Calculate pedestrian UTCI", undefined, { chapter: 3, studyArea: true })).action.kind, "exposure");
+assert.equal((await ask("What is the UTCI in my selection?", undefined, { chapter: 3, bounds: [-.14, 51.50, -.10, 51.53] })).action.kind, "exposure");
 const amsterdam = archiveCase("Amsterdam");
 assert.match((await ask("Calculate pedestrian UTCI in my selection", amsterdam, { chapter: 3 })).reply, /Draw an area first/);
 assert.equal((await ask("Calculate UTCI for the full model coverage", amsterdam, { chapter: 3 })).action.scope, "full");

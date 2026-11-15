@@ -1,5 +1,10 @@
 # Heatline changelog
 
+## v24 — Atlas methods knowledge
+
+- Rebuild the Atlas knowledge base from the latest Data & Methods page, repository methods and case catalogue.
+- Answer questions about research workspace inputs and exports, field priority and street shade from the published methods.
+
 ## v23 — Private research workspace
 
 - Import a study boundary and validated GeoJSON, GeoTIFF or CSV inputs. Preview and clip layers to the study area.

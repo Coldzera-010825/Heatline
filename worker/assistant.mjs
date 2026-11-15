@@ -3,6 +3,7 @@ import { districts, populationGroups } from "./london-population.mjs";
 import { matchesSnapshot, requestTime, streetYearOnly, viewIntent } from "./request-time.mjs";
 import { geminiPost } from "./gemini.mjs";
 import { answerPlatformQuestion, scopeGuidance } from "./platform-answer.mjs";
+import { isPlatformQuestion } from "../dist/client/atlas-question.js";
 
 const layers = ["era5", "lst", "wow", "ndvi", "ndwi", "elevation", "landcover", "utci"];
 const actions = ["exposure", "station", "population", "shade", "risk", "navigate", "globe", "layer", "day", "view", "method", "regional", "explain", "unsupported", "clarify"];
@@ -340,11 +341,12 @@ async function chat(body, progress, env, analyze) {
   const model = env.GEMINI_MODEL?.trim() || "gemini-3.1-flash-lite";
   let provider = "local";
   let providerWarning;
-  const fallback = localIntent(message, context);
+  const reference = isPlatformQuestion(message);
+  const fallback = reference ? { action: "explain" } : localIntent(message, context);
   let intent;
   // The model decides the route whenever a key is present. Selection-dependent
   // intents stay local because the model cannot see the live map selection.
-  if (key && !fallback.requireBounds) {
+  if (key && !reference && !fallback.requireBounds) {
     progress("Identifying the Atlas tool with Gemini…");
     try {
       intent = await modelIntent(message, context, key, model);
@@ -433,5 +435,5 @@ async function narrate(body, env) {
   }
 }
 
-export { chat, narrate };
+export { chat, narrate, isPlatformQuestion };
 

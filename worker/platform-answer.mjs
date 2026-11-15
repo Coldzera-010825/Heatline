@@ -4,20 +4,19 @@
 import { knowledge } from "./platform-knowledge.mjs";
 import { geminiPost, endpointFor } from "./gemini.mjs";
 
-const METHODS_URL = "https://heatline-atlas.abrdns.com/methods.html";
 const MAX_PASSAGES = 3;
 const MAX_CONTEXT = 6000;
 
 const scopeGuidance =
-  "Atlas answers questions about the Heatline atlas: its data sources, study areas, " +
-  "residential surface temperature, pedestrian heat, shade scenarios and the terms used on the " +
+  "Atlas answers questions about the Heatline atlas, including data sources, study areas, " +
+  "residential surface temperature, pedestrian heat, shade scenarios, the research workspace and the terms used on the " +
   "site. Ask for example “Where does the LST data come from?”, “How is UTCI calculated?” or " +
   "“What does NDVI mean?”";
 
 // The knowledge text is English, so Chinese questions are expanded with the
 // English wording used on the Methods page before scoring.
 const expansions = [
-  [/数据来源|数据源|来源|出处|哪来的/, "data source coverage"],
+  [/数据来源|数据源|来源|出处|哪来的|来自哪里/, "data source coverage"],
   [/计算|怎么算|如何算|算法|公式|算出来/, "calculation formula equation computed"],
   [/方法|方法论/, "method calculation"],
   [/定义|是什么|什么意思|含义|指什么|代表什么/, "definition means"],
@@ -31,6 +30,11 @@ const expansions = [
   [/气象站|湿度|风速|气温/, "station weather humidity wind temperature"],
   [/热暴露|行人热|步行热|热应力/, "pedestrian heat exposure utci"],
   [/植被|绿地|绿化/, "vegetation ndvi greenness"],
+  [/工作区|研究空间/, "research workspace"],
+  [/文件格式|支持.*文件|导入|上传|(?:file formats?|what files|which files)/i, "file format import upload geotiff geojson csv"],
+  [/导出|复现/, "export download reproducibility"],
+  [/保留|过期|保存多久|有效期/, "retention expiry seven days"],
+  [/优先级|核查|field priority/, "priority score census review field priority"],
 ];
 
 function tokens(question) {
@@ -39,8 +43,7 @@ function tokens(question) {
   return extras.length ? lower + " " + extras.join(" ") : lower;
 }
 
-function score(entry, question) {
-  const lower = tokens(question);
+function score(entry, lower) {
   let total = 0;
   for (const keyword of entry.keywords) {
     if (keyword.length < 2) continue;
@@ -53,8 +56,9 @@ function score(entry, question) {
 }
 
 function search(question) {
+  const lower = tokens(question);
   return knowledge
-    .map(entry => ({ entry, value: score(entry, question) }))
+    .map(entry => ({ entry, value: score(entry, lower) }))
     .filter(item => item.value > 0)
     .sort((a, b) => b.value - a.value)
     .slice(0, MAX_PASSAGES)
@@ -75,7 +79,7 @@ function buildContext(entries) {
 
 const answerInstruction = [
   "You are Atlas, the assistant inside the Heatline climate atlas.",
-  "Answer only from the numbered passages supplied by the user.",
+  "Answer only from the supplied passages.",
   "Quote formulas, thresholds and figures exactly as written; do not recompute them.",
   "If the passages do not cover the question, say the Methods page does not state it and point the reader there.",
   "Use two to three sentences, no markdown, no greeting, and no general climate advice.",
@@ -92,10 +96,22 @@ function grounded(reply, context) {
   return numbersIn(reply).every(value => allowed.some(candidate => Math.abs(candidate - value) < 0.05));
 }
 
-function excerpt(entries) {
-  const [first] = entries;
-  const sentence = first.text.split(/(?<=\.)\s/).slice(0, 2).join(" ");
-  return "From the Methods page · " + first.title + ": " + (sentence.length > 420 ? sentence.slice(0, 420) + "…" : sentence);
+function excerpt(entries, question) {
+  const query = tokens(question);
+  const common = new Set(["the", "and", "atlas", "heatline", "research workspace", "workspace", "data"]);
+  const segments = entries.flatMap(entry => {
+    const sentences = entry.text.replace(/\s+/g, " ").split(/(?<=\.)\s/);
+    return sentences.map((sentence, index) => {
+      const next = sentences[index + 1] ?? "";
+      const text = sentence + (next && sentence.length + next.length < 520 ? " " + next : "");
+      const lower = text.toLowerCase();
+      const relevant = entry.keywords.filter(keyword => !common.has(keyword) && query.includes(keyword) && lower.includes(keyword));
+      const value = relevant.reduce((total, keyword) => total + Math.min(keyword.length, 20), 0);
+      return { title: entry.title, text, value };
+    });
+  });
+  const [best] = segments.sort((a, b) => b.value - a.value);
+  return "From the Methods page · " + best.title + ". " + (best.text.length > 520 ? best.text.slice(0, 520) + "…" : best.text);
 }
 
 async function askModel(question, context, key, model) {
@@ -117,16 +133,16 @@ async function answerPlatformQuestion(question, key, model) {
   const entries = search(question);
   if (!entries.length) return { ok: false, status: "out-of-scope", reply: scopeGuidance, sources: [] };
   const sources = entries.map(entry => entry.id);
-  if (!key) return { ok: false, status: "no-key", reply: excerpt(entries), sources };
+  if (!key) return { ok: false, status: "no-key", reply: excerpt(entries, question), sources };
   const context = buildContext(entries);
   try {
     const reply = await askModel(question, context, key, model);
-    if (!grounded(reply, context)) return { ok: false, status: "ungrounded", reply: excerpt(entries), sources };
+    if (!grounded(reply, context)) return { ok: false, status: "ungrounded", reply: excerpt(entries, question), sources };
     return { ok: true, status: "answered", reply, sources };
   } catch (error) {
     console.warn("Atlas platform answer failed:", error?.message ?? error);
-    return { ok: false, status: "unavailable", reply: excerpt(entries), sources };
+    return { ok: false, status: "unavailable", reply: excerpt(entries, question), sources };
   }
 }
 
-export { answerPlatformQuestion, search, scopeGuidance, METHODS_URL };
+export { answerPlatformQuestion, scopeGuidance };

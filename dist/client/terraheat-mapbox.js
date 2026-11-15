@@ -2421,7 +2421,7 @@
     const chatTurn = appendTurn("atlas");
     chatTurn.question = text;
     return withBusy(async () => {
-      if (reviewing()) {
+      if (reviewing() && !(await import("./atlas-question.js")).isPlatformQuestion(text)) {
         if (/\b(forecast|tomorrow|current weather|deaths?|health outcomes?)\b|预报|明天|死亡|健康风险/i.test(text)) {
           return writeReply(chatTurn, "Review & advise works with the selected historical walking model, its shade evidence and field checks.");
         }
