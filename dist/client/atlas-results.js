@@ -68,6 +68,14 @@
     return item;
   }
 
+  function methodDetails(title, section, ...paragraphs) {
+    const item = details(title, ...paragraphs);
+    const link = element("a", "See Details Here", "method-link");
+    link.href = "methods.html#" + section;
+    item.append(link);
+    return item;
+  }
+
   function options(items, onChange, active = items[0][0]) {
     const row = element("div", null, "result-options");
     for (const [value, label] of items) {
@@ -302,7 +310,7 @@
       reference.target = "_blank";
       reference.rel = "noopener noreferrer";
       thresholds.append(bars("Walking length by heat stress", stress.map(band => [band.label, band.share])), reference);
-      nodes.push(thresholds, details("How this was calculated", method, source));
+      nodes.push(thresholds, methodDetails("How this was calculated", "street", method, source));
     } else if (event.kind === "station") {
       const { day, hours, peaks, charts, associations, comparisonFields, referenceComparison, method } = event;
       nodes.push(element("h2", peaks.length === 2 ? "Station comparison" : "Station heat analysis"), element("p", result.reply));
@@ -321,7 +329,7 @@
         nodes.push(table("WOW minus NOAA St James’s Park at matching UTC times", referenceComparison.map(row =>
           [row.name + " · " + row.hours + " matched hours", row.hours ? format(row.difference) + "°C" : "No overlap"])));
       }
-      nodes.push(details("Observation quality and method", method));
+      nodes.push(methodDetails("Observation quality and method", "weather", method));
     } else if (event.kind === "population") {
       const { groups, group, reference, ranked, rankOrder } = event;
       nodes.push(element("h2", ranked ? "District ranking" : "Residential surface heat · " + event.place), element("p", result.reply));
@@ -355,7 +363,7 @@
       nodes.push(options(event.mapLayers, callbacks.layer, callbacks.variant),
         seriesLegend([groups[group].label, groups[reference].label]),
         bars("Share of matched residents by LST band (°C)", event.distribution.map(band => [band.label, band[group], band[reference]])),
-        details("How this was calculated", event.method));
+        methodDetails("How this was calculated", "residential", event.method));
     } else if (event.kind === "shade") {
       nodes.push(element("h2", "Shade scenario"), element("p", result.reply), table("Eligible cells · baseline and shade scenario", [
         ["Baseline UTCI", format(event.before) + "°C"], ["Scenario UTCI", format(event.after) + "°C"],
@@ -370,7 +378,7 @@
         ["Currently sunlit length in paired cells", distance(event.sunM)],
         ["Sunlit length converted to shade", distance(event.convertedM)],
       ]), options([["baseline", "Baseline map"], ["scenario", "Scenario map"]], callbacks.layer, callbacks.variant),
-        details("Scenario assumptions and formula", event.method, event.formula, event.source));
+        methodDetails("Scenario assumptions and formula", "shade", event.method, event.formula, event.source));
       nodes.splice(2, 0, element("p", "The dashed outline marks a drawn selection. Coloured cells have eligible sun–shade pairs. " +
         (event.coverage?.city ? "Uncoloured routes have no eligible pair or no modelled path." : "Paired inputs cover only the outlined pilot."), "data-note"));
       if (event.selection) nodes.splice(4, 0, table("Whole modelled selection · other routes fixed", [
@@ -382,5 +390,5 @@
     return nodes;
   }
 
-  window.HEATLINE_RESULTS = { element, button, table, details, bars, seriesLegend, format, distance, reducedMotion, typeText, observations, weatherReference, regionalWeather, render };
+  window.HEATLINE_RESULTS = { element, button, table, details, methodDetails, bars, seriesLegend, format, distance, reducedMotion, typeText, observations, weatherReference, regionalWeather, render };
 })();

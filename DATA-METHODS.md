@@ -1,3 +1,6 @@
+The [research methods page](https://heatline-atlas.abrdns.com/methods.html) gives
+the provider downloads, study boundaries, equations and links to atlas examples.
+
 Heatline uses the 1114 FUA v3 delivery. Greater London retains its administrative
 boundary. Paris, Lille, Brussels, Amsterdam, Utrecht, Seattle and Portland use
 functional urban area (FUA) polygons. The European polygons are GISCO Urban
@@ -45,9 +48,9 @@ terrain, and cells under the minimum route length. The date refers to one
 simulated instant. The other events use their recorded municipality or pilot
 footprints.
 
-For street comparisons, the six European areas use a common morning UTC
-snapshot on 25 July 2019, 7 August 2020, 18 July 2022, 1 July 2025, or
-26 June 2026. The Pacific Northwest uses 28 June 2021 at 20:00 UTC. The weather
+For live street comparisons, the six European areas use the 18 July 2022 UTC
+snapshot. The catalog retains other dated pilots for the shade archive. The
+Pacific Northwest pilots use 28 June 2021 at 20:00 UTC. The weather
 and radiation change by event. The terrain and walking geometry are held
 fixed by city. In administrative-area runs, SOLWEIG uses buffered 1.9 km
 tiles, with background weather shared within each tile. Coverage means
