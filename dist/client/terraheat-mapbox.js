@@ -2863,7 +2863,12 @@
   };
   $("review-focus").addEventListener("change", () => { districtComparisons.delete(reviewStage); districts.render(); });
   $("run-analysis").onclick = () => {
-    if (reviewing()) return submit("Review this area");
+    if (reviewing()) {
+      // AI Analyze hands the current selection to Atlas, so show the conversation
+      // instead of leaving the answer on the hidden chat panel.
+      selectPanel("atlas");
+      return submit("Review this area");
+    }
     const kind = {
     1: usingArchive() && canCompareGroups() ? "groups" : "population", 2: "exposure", 3: "shade",
     }[stage];
