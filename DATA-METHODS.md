@@ -149,3 +149,43 @@ approximately 5 m sampling, with field checks for position, use and site conditi
 
 Use `npm run build` and `node verify-local.mjs` to verify the archive, time
 matching, area selection, and UTCI agreement with the SOLWEIG reference.
+
+## Private research workspace
+
+Open **Research workspace** from the atlas. Each private study fixes a WGS 84
+boundary and an event time. Use a catalogue boundary or import GeoJSON, and
+choose a metric analysis CRS if the default local UTM grid is unsuitable.
+London's catalogue boundary defaults to British National Grid. Imported
+data and results are available for seven days and can be deleted from the
+workspace. Access ends at expiry. The service removes expired files during
+workspace use or a scheduled cleanup when the host provides one.
+
+- **LST and population.** Import north-up single-band GeoTIFFs. LST accepts
+  calibrated Celsius or Kelvin at the study time. Population records the
+  source year and keeps people-per-pixel counts. The calculation matches
+  population cell centres to LST and reports the matched denominator.
+- **Walking heat and shade.** The CSV template uses ISO 8601 times with an
+  explicit timezone, WGS 84 coordinates, represented metres, Tmrt and air
+  temperature in °C, relative humidity in percent and 10 m wind in m/s.
+  UTCI is evaluated per sample. The coarse map preview samples dense outputs
+  and the export includes all calculation cells. Add `sunlit` and
+  `building_shade` classes for paired estimation. The existing 20 m
+  per-class threshold, 100 m grid and what-if equation apply.
+- **Field priorities.** Join imported `area_id` polygons to a count table
+  with `group_id`, `group_label`, `group_count` and `eligible_count`.
+  The model joins walking cells to census polygons and uses the score in
+  Review & Advise. Resident shares describe residential context.
+- **Export.** Download the original or validated file. Result CSV and GeoJSON
+  retain numerical values and locations. ZIP includes both CSV tables,
+  the full and selected boundaries, and a manifest with input hashes,
+  model and application revisions, coordinate system, time and parameters.
+
+The first release accepts up to 12 MiB per file, 100,000 CSV records and
+500,000 clipped raster pixels. Large exports may require selecting a smaller
+analysis area. The model uses a prepared Tmrt input at the study event time.
+From raw terrain and weather the preparation command in the street model
+section generates radiation and shade inputs for the existing archive.
+
+For a private local preview, use `HEATLINE_LOCAL_WORKSPACE=1` with
+`npm start` on loopback. The preview storage is in memory. Production uses
+the `WORKSPACE` private object-store binding and the Sites visitor identity.

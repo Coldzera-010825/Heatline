@@ -1,5 +1,11 @@
 # Heatline changelog
 
+## v23 — Private research workspace
+
+- Import a study boundary and validated GeoJSON, GeoTIFF or CSV inputs. Preview and clip layers to the study area.
+- Calculate resident-weighted LST, walking UTCI, paired shade scenarios and group field priorities from the selected uploaded files.
+- Export original and normalized layers, CSV results, GeoJSON and a reproducibility package with model, coverage, inputs and selection.
+
 ## v22 — Shade coverage and census-informed field priorities
 
 - Show the full modelled walking area on the Act 5 scenario map. Dimmed cells carry forward baseline UTCI. The reduction map identifies cells that lack a valid pair.

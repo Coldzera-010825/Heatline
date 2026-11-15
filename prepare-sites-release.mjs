@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { copyFile, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -63,6 +63,11 @@ try {
   await writeFile(within(destination, marker), JSON.stringify({
     repository: "Coldzera-010825/Heatline", commit,
   }, null, 2) + "\n");
+  if (current.has("worker/workspace.mjs")) {
+    const manifest = within(destination, ".openai/hosting.json");
+    const hosting = JSON.parse(await readFile(manifest, "utf8"));
+    if (hosting.r2 == null) await writeFile(manifest, JSON.stringify({ ...hosting, r2: "WORKSPACE" }, null, 2) + "\n");
+  }
   console.log("Prepared " + commit + " for the existing Sites project (" + files.length + " files).");
 } finally {
   await rm(temporary, { recursive: true, force: true });

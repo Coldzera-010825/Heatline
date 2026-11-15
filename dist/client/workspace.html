@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#191614">
+  <title>Research Workspace · Heatline</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.33.0/mapbox-gl.css">
+  <link rel="stylesheet" href="workspace.css">
+</head>
+<body>
+<header class="ws-header">
+  <a class="ws-brand" href="./"><span class="ws-sun" aria-hidden="true"></span><span>Heatline</span></a>
+  <div class="ws-header-title">Research workspace</div>
+  <nav aria-label="Workspace navigation">
+    <a href="methods.html#workspace">Data &amp; methods</a>
+    <a class="button" href="./#globe">Open atlas ↗</a>
+  </nav>
+</header>
+
+<main>
+  <section id="workspace-gate" class="gate" aria-labelledby="gate-title">
+    <h1 id="gate-title">Research workspace</h1>
+    <p id="gate-message" role="status">Opening your workspace…</p>
+    <a id="workspace-sign-in" class="button primary" href="/signin-with-chatgpt?return_to=%2Fworkspace.html" target="_top" hidden>Sign in to continue ↗</a>
+  </section>
+  <div id="workspace-shell" hidden>
+    <section class="study-bar">
+      <div class="study-identity">
+        <label for="studies">Private studies</label>
+        <div class="study-select">
+          <select id="studies"></select>
+          <button id="new-study" class="button" type="button">New study</button>
+        </div>
+        <h1 id="study-name">Create a study</h1>
+        <p id="study-description">Set a boundary and an event time to begin.</p>
+      </div>
+      <div class="study-actions">
+        <button id="delete-study" class="button subtle" type="button" hidden>Delete study</button>
+        <button id="import-data" class="button primary" type="button" disabled>Import data <span aria-hidden="true">＋</span></button>
+      </div>
+    </section>
+
+    <div class="workbench">
+      <aside class="ws-panel inputs" aria-label="Datasets and analysis">
+        <section>
+          <div class="panel-heading"><h2>Datasets</h2><span id="file-count" class="count">0</span></div>
+          <p class="quiet" id="dataset-note">Import data to preview it in the study area.</p>
+          <div id="dataset-list"></div>
+          <details id="file-actions" class="mini-menu" hidden>
+            <summary>Export selected data</summary>
+            <div><a id="export-original">Original file</a><a id="export-normalized">Validated layer</a></div>
+          </details>
+        </section>
+        <section aria-labelledby="analysis-title">
+          <div class="panel-heading"><h2 id="analysis-title">Analysis</h2><button id="analysis-guide" class="text-button" type="button">Input guide ↗</button></div>
+          <label for="model" class="sr-only">Analysis model</label>
+          <select id="model"></select>
+          <p id="model-help" class="quiet"></p>
+          <div id="readiness" class="readiness"></div>
+          <div id="model-inputs"></div>
+          <button id="run-analysis" class="button primary full" type="button" disabled>Run analysis <span aria-hidden="true">↗</span></button>
+          <p class="quiet form-status" id="run-status" role="status"></p>
+        </section>
+      </aside>
+
+      <section class="map-panel" aria-label="Study map">
+        <div id="workspace-map"></div>
+        <div class="map-header">
+          <span id="map-layer-label">Study boundary</span>
+          <div class="map-buttons">
+            <button id="fit-study" type="button" class="button map-button" disabled>Fit study</button>
+            <button id="draw-selection" type="button" class="button map-button" aria-pressed="false" disabled>Draw area</button>
+            <button id="clear-selection" type="button" class="button map-button" hidden>Clear area</button>
+          </div>
+        </div>
+        <div id="map-placeholder">Create a study to preview your data.</div>
+        <div id="workspace-legend" hidden>
+          <strong id="legend-label"></strong><div id="legend-ramp"></div>
+          <div id="legend-limits"></div>
+          <small id="legend-note"></small>
+          <div id="result-view" class="view-choices" hidden>
+            <button type="button" data-value="baseline_utci_c">Baseline</button>
+            <button type="button" data-value="scenario_utci_c">Scenario</button>
+            <button type="button" data-value="delta_utci_c">ΔUTCI</button>
+          </div>
+        </div>
+        <p id="selection-note" class="map-note" role="status"></p>
+      </section>
+
+      <aside class="ws-panel results" aria-label="Results and Atlas">
+        <section id="results-content">
+          <div class="panel-heading"><h2>Results</h2></div>
+          <p class="quiet" id="results-empty">Run an analysis to see the statistics, coverage and downloadable results here.</p>
+          <div id="result-card" hidden>
+            <p id="result-time" class="quiet"></p>
+            <h3 id="result-title"></h3>
+            <div id="result-metrics"></div>
+            <p id="result-method" class="quiet"></p>
+            <div id="priority-locations" hidden></div>
+            <details id="export-results" class="mini-menu export">
+              <summary>Export results <span aria-hidden="true">↓</span></summary>
+              <div><a id="result-csv">CSV · model values</a><a id="result-map">GeoJSON · map layer</a><a id="result-zip">ZIP · reproducibility package</a></div>
+            </details>
+          </div>
+          <div id="run-history" hidden><label for="run-list">Completed runs</label><select id="run-list"></select></div>
+        </section>
+        <section class="workspace-atlas" aria-labelledby="atlas-title">
+          <div class="panel-heading"><h2 id="atlas-title"><span class="atlas-dot" aria-hidden="true"></span>Atlas</h2><span id="atlas-mode" class="quiet"></span></div>
+          <div id="atlas-thread" role="log"><p class="quiet">Ask Atlas to run the selected analysis or explain a completed result.</p></div>
+          <form id="atlas-form">
+            <label class="sr-only" for="atlas-question">Ask Atlas</label>
+            <input id="atlas-question" maxlength="400" placeholder="Analyse shade at 25%…" autocomplete="off">
+            <button class="button" aria-label="Send to Atlas" type="submit">↗</button>
+          </form>
+        </section>
+      </aside>
+    </div>
+  </div>
+</main>
+
+<dialog id="study-dialog" aria-labelledby="study-dialog-title">
+  <form id="study-form">
+    <header class="dialog-header"><h2 id="study-dialog-title">New research study</h2><button class="button close" type="button" data-close="study-dialog" aria-label="Close">×</button></header>
+    <p class="quiet">Choose one study area and one UTC event time.</p>
+    <label for="new-name">Study name</label><input id="new-name" maxlength="80" required placeholder="e.g. July heatwave · Central London">
+    <label for="new-event">Event time (UTC)</label><input type="datetime-local" id="new-event" step="1" required>
+    <label for="new-city">Boundary</label><select id="new-city"><option value="">Upload my own boundary</option></select>
+    <details><summary>Metric grid options</summary><label for="new-crs">Analysis CRS (optional)</label><input id="new-crs" placeholder="Automatic local UTM"></details>
+    <p id="study-form-status" class="form-status" role="status"></p>
+    <footer><button class="button primary" type="submit">Create study ↗</button></footer>
+  </form>
+</dialog>
+
+<dialog id="import-dialog" class="import-dialog" aria-labelledby="import-dialog-title">
+  <header class="dialog-header"><h2 id="import-dialog-title">Import data</h2><button class="button close" type="button" data-close="import-dialog" aria-label="Close">×</button></header>
+  <div class="import-body">
+    <aside>
+      <label for="import-model">Prepare inputs for</label><select id="import-model"></select>
+      <div id="import-requirements" class="readiness"></div>
+      <a href="methods.html#workspace">View formats and methods ↗</a>
+    </aside>
+    <form id="import-form">
+      <label for="role">Dataset role</label><select id="role" required></select>
+      <p class="quiet" id="role-hint"></p>
+      <div id="schema-fields" class="schema-fields" hidden></div>
+      <button id="download-template" class="button" type="button" hidden>Download CSV template ↓</button>
+      <label for="import-file">Choose file</label><input id="import-file" type="file" required>
+      <label for="file-label">Layer name (optional)</label><input id="file-label" maxlength="96" placeholder="Use file name">
+      <div id="import-metadata"></div>
+      <details><summary>Source information</summary><label for="file-source">Source or citation</label><input id="file-source" maxlength="160"></details>
+      <p id="import-status" class="form-status" role="status"></p>
+      <footer><button id="validate-file" class="button primary" type="submit">Validate &amp; import ↗</button></footer>
+    </form>
+  </div>
+</dialog>
+<dialog id="delete-dialog" aria-labelledby="delete-title">
+  <form method="dialog"><header class="dialog-header"><h2 id="delete-title">Delete study?</h2></header>
+    <p>This removes its uploads, map layers and runs.</p>
+    <p id="delete-status" class="form-status" role="status"></p>
+    <footer><button class="button" value="cancel">Cancel</button><button id="confirm-delete" class="button primary" type="button">Delete study</button></footer>
+  </form>
+</dialog>
+
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.33.0/mapbox-gl.js"></script>
+<script src="mapbox-token.js"></script>
+<script type="module" src="workspace.js"></script>
+</body>
+</html>

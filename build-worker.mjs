@@ -2,6 +2,7 @@ import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "no
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
+import { build } from "esbuild";
 
 const project = path.dirname(fileURLToPath(import.meta.url));
 const server = path.join(project, "dist", "server");
@@ -17,6 +18,11 @@ for (const file of ["analysis.mjs", "assistant.mjs", "event-analysis.mjs", "lond
   copyFileSync(path.join(project, "worker", file), path.join(server, file));
 }
 copyFileSync(path.join(project, "worker", "index.mjs"), path.join(server, "index.js"));
+await build({
+  entryPoints: [path.join(project, "worker", "workspace.mjs")],
+  outfile: path.join(server, "workspace.mjs"),
+  bundle: true, format: "esm", platform: "browser", target: "es2023",
+});
 writeFileSync(path.join(server, "wrangler.json"), JSON.stringify({
   name: "heatline",
   main: "index.js",
