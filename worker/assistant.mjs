@@ -1,9 +1,11 @@
 import { method, validBounds } from "./analysis.mjs";
 import { districts, populationGroups } from "./london-population.mjs";
 import { matchesSnapshot, requestTime, streetYearOnly, viewIntent } from "./request-time.mjs";
+import { geminiPost } from "./gemini.mjs";
+import { answerPlatformQuestion, scopeGuidance } from "./platform-answer.mjs";
 
 const layers = ["era5", "lst", "wow", "ndvi", "ndwi", "elevation", "landcover", "utci"];
-const actions = ["exposure", "station", "population", "shade", "risk", "navigate", "globe", "layer", "day", "view", "method", "regional", "unsupported", "clarify"];
+const actions = ["exposure", "station", "population", "shade", "risk", "navigate", "globe", "layer", "day", "view", "method", "regional", "explain", "unsupported", "clarify"];
 const scopes = ["selected", "london"];
 const eventIds = ["E1_2019-07", "E2_2020-08", "G1_2021-06", "E3_2022-07", "E4_2025-06", "E5_2026-06"];
 const regions = {
@@ -20,6 +22,7 @@ const instructions = [
   "Shade accepts an optional percentage of sunlit route length. Population compares all, older (65+), limited (day-to-day activities limited), deprived (IMD 1–2), and leastDeprived (IMD 9–10). For district results supply its LAD code; set rank true only for rankings across districts.",
   "Regional compares residential Landsat surface heat within one archived event or same-time street pilot UTCI in July 2022. ERA5 is regional context. Use individual city cases for shade or subgroup analyses.",
   "Use risk for clinical risk requests, unsupported for forecasts, unavailable metrics or locations, rainfall or routing, and clarify for ambiguity.",
+  "Use explain for questions about the platform itself: data sources, study areas, formulas, or what a term such as LST, NDVI, UTCI or shade fraction means. explain answers in text and never changes the map. Use unsupported for topics unrelated to the atlas and say briefly that Atlas only covers Heatline questions.",
 ].join(" ");
 
 const groupPatterns = [
@@ -194,22 +197,6 @@ function localIntent(message, context) {
   return { action: "clarify" };
 }
 
-async function geminiPost(endpoint, body, key, timeout) {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      return await fetch(endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-goog-api-key": key },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeout),
-      });
-    } catch (error) {
-      // A stale proxy connection shows up as a timeout; one retry usually clears it.
-      if (attempt >= 1) throw error;
-    }
-  }
-}
-
 async function modelIntent(message, context, key, model) {
   const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent";
   const response = await geminiPost(endpoint, {
@@ -240,6 +227,7 @@ async function modelIntent(message, context, key, model) {
               secondRegion: { type: "STRING", enum: Object.keys(regions) },
               date: { type: "STRING", description: "UTC date as YYYY-MM-DD." },
               time: { type: "STRING", description: "UTC time as HH:MM." },
+              topic: { type: "STRING", description: "For explain: the concept or dataset being asked about, copied from the user's wording." },
             },
             required: ["action"],
           },
@@ -321,15 +309,22 @@ function executeIntent(intent, body, progress, analyze) {
       return ready(methods[body.chapter] ?? method);
     }
     case "unavailable": return problem("unavailable", intent.reply ?? availability);
-    case "unsupported": return problem("unsupported", availability);
+    case "unsupported": return problem("unsupported", availability + " " + scopeGuidance);
     default: return problem("clarify", intent.reply ?? "Try “Compare residents aged 65+”, “Rank boroughs for residents aged 65+”, “Calculate pedestrian heat in my selection” or “Compare London and Paris in 2022”.");
   }
 }
+
+const greetingPattern = /^(?:hi|hello|hey|yo|good (?:morning|afternoon|evening)|你好|您好|哈喽|嗨|早上好|晚上好|下午好|在吗)[\s!！。.,，?？~～…]*$/i;
+const greetingReply = "Hi, I am Atlas. I can open a city case or run an analysis for you, and I can explain where the data comes from. Try “Compare Paris and Amsterdam in 2020”, “哪儿的老人家最遭罪” or “How is UTCI calculated?”";
 
 async function chat(body, progress, env, analyze) {
   const { message, bounds, studyArea, layer, chapter, station, comparison } = body;
   if (typeof message !== "string" || !message.trim() || message.length > 1000) {
     return problem("clarify", "Enter a question about a Heatline city or event (up to 1,000 characters).");
+  }
+  // A bare greeting must never pick an analysis tool.
+  if (greetingPattern.test(message.trim())) {
+    return { ...ready(greetingReply, { type: "answer" }), provider: "local" };
   }
   if (bounds != null && !validBounds(bounds)) {
     return problem("clarify", "Draw a rectangular area with valid map coordinates.");
@@ -367,6 +362,20 @@ async function chat(body, progress, env, analyze) {
   if (!intent || incomplete) {
     if (!key) progress("Matching the question to an Atlas tool…");
     intent = fallback;
+  }
+  // Platform questions answer in text and never touch the map.
+  if (intent.action === "explain") {
+    progress("Reading the Methods page…");
+    const question = typeof intent.topic === "string" && intent.topic.trim() ? message + " " + intent.topic : message;
+    const answer = await answerPlatformQuestion(question, key, model);
+    return {
+      ok: true,
+      status: "complete",
+      reply: answer.reply,
+      action: { type: "answer" },
+      provider: answer.ok ? "gemini" : "local",
+      providerWarning,
+    };
   }
   const result = await executeIntent(intent, body, progress, analyze);
   return { ...result, provider, providerWarning };
