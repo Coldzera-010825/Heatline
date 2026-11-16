@@ -38,6 +38,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .gate { max-width: 710px; margin: 13vh auto; padding: 34px; border: 1px solid var(--rule); background: var(--panel); border-radius: 8px; }
 .gate h1, .study-bar h1 { font: 500 clamp(27px, 3vw, 42px)/1.14 var(--serif); margin: 7px 0; }
 .gate p { color: var(--muted); }
+.gate-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 20px; }
+.guest-notice { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; margin-top: 14px;
+  padding: 9px 14px; border-left: 2px solid #d69966; background: #251d16; color: #ddc5ae; font-size: .85rem; }
+.guest-notice strong { color: #ffd0a3; }
 .study-bar { display: flex; align-items: end; justify-content: space-between; gap: 14px; padding: 22px clamp(16px, 3vw, 42px) 19px; }
 .study-bar p { color: var(--muted); margin: 6px 0 0; font-size: .85rem; }
 .study-identity label, label { display: block; margin: 8px 0 4px; font-size: .8rem; color: #e4c9ad; }
@@ -130,7 +134,7 @@ dialog details { margin-top: 11px; color: var(--muted); font-size: .8rem; }
   .ws-header-title { padding-left: 10px; font-size: .75rem; }
   .ws-brand { font-size: 18px; gap: 6px; }
   .ws-sun { width: 23px; height: 23px; }
-  .ws-header nav { gap: 0; }
+  .ws-header nav { gap: 8px; }
   .ws-header nav a:first-child { display: none; }
   .ws-header nav .button { font-size: .72rem; padding: 5px 6px; }
   .study-bar { align-items: start; flex-direction: column; padding-top: 12px; }
@@ -140,4 +144,7 @@ dialog details { margin-top: 11px; color: var(--muted); font-size: .8rem; }
   .ws-panel { height: auto; }
   .results > section + section { border-left: 0; border-top: 1px solid var(--rule); }
   .import-body { grid-template-columns: minmax(0,1fr); gap: 13px; }
+}
+@media (max-width: 420px) {
+  .ws-header-title { display: none; }
 }

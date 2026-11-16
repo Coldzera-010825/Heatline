@@ -87,7 +87,8 @@ button:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visi
 #grid-view-toggle{justify-content:center}
 #grid-view-toggle button{pointer-events:auto}
 #legend-ramp,#legend-ends{width:min(100%,224px);margin-inline:auto}
-#legend-ramp{height:7px;background:linear-gradient(90deg,#54296e,#ad456d,#ed7055,#ffc27a,#fff0b4)}#legend-ends{display:flex;justify-content:space-between;margin-top:3px;font-size:11px}
+#legend-ramp{height:7px;background:linear-gradient(90deg,#54296e,#ad456d,#ed7055,#ffc27a,#fff0b4)}#legend-ends{position:relative;display:flex;justify-content:space-between;margin-top:3px;font-size:11px}
+.legend-zero{position:absolute;transform:translateX(-50%)}
 .atlas-timeline{display:flex;align-items:center;gap:7px}.atlas-timeline input{flex:1;width:0;min-width:36px;accent-color:var(--amber)}
 .mapboxgl-ctrl-top-right{top:75px;right:calc(var(--guide-width) + 29px)}.mapboxgl-popup-content{background:#1a1713;color:#f4e3d0;border:1px solid #896c54;border-radius:0;font-size:13px}.mapboxgl-popup-close-button{color:#fff}
 .layer-controls{display:flex;align-items:center;gap:8px}

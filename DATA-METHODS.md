@@ -188,15 +188,21 @@ approximately 5 m sampling, with field checks for position, use and site conditi
 Use `npm run build` and `node verify-local.mjs` to verify the archive, time
 matching, area selection, and UTCI agreement with the SOLWEIG reference.
 
-## Private research workspace
+## Research workspace
 
-Open **Research workspace** from the atlas. Each private study fixes a WGS 84
+Open **Research workspace** from the atlas. Each study fixes a WGS 84
 boundary and an event time. Use a catalogue boundary or import GeoJSON, and
 choose a metric analysis CRS if the default local UTM grid is unsuitable.
-London's catalogue boundary defaults to British National Grid. Imported
+London's catalogue boundary defaults to British National Grid. Signed-in
 data and results are available for seven days and can be deleted from the
 workspace. Access ends at expiry. The service removes expired files during
 workspace use or a scheduled cleanup when the host provides one.
+
+**Continue as guest** runs the same file validation and models in a dedicated
+browser worker. Files, parameters and results are held in memory for that tab.
+Guest imports and results stay out of the private workspace store. Atlas uses
+the built-in methods and model summaries in guest mode. Download the inputs
+or results you want to keep before reloading or leaving the page.
 
 - **LST and population.** Import north-up single-band GeoTIFFs. LST accepts
   calibrated Celsius or Kelvin at the study time. Population records the

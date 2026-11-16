@@ -16,6 +16,7 @@
   <div class="ws-header-title">Research workspace</div>
   <nav aria-label="Workspace navigation">
     <a href="methods.html#workspace">Data &amp; methods</a>
+    <a id="workspace-mode-link" href="workspace.html?guest=1" hidden>Try as guest</a>
     <a class="button" href="./#globe">Open atlas ↗</a>
   </nav>
 </header>
@@ -24,12 +25,18 @@
   <section id="workspace-gate" class="gate" aria-labelledby="gate-title">
     <h1 id="gate-title">Research workspace</h1>
     <p id="gate-message" role="status">Opening your workspace…</p>
-    <a id="workspace-sign-in" class="button primary" href="/signin-with-chatgpt?return_to=%2Fworkspace.html" target="_top" hidden>Sign in to continue ↗</a>
+    <p id="guest-description" hidden>Try your own files and models in a guest session. Download any results you want to keep before leaving.</p>
+    <div class="gate-actions">
+      <a id="workspace-sign-in" class="button primary" href="/signin-with-chatgpt?return_to=%2Fworkspace.html" target="_top" hidden>Sign in to continue ↗</a>
+      <a id="workspace-guest" class="button" href="workspace.html?guest=1" hidden>Continue as guest ↗</a>
+    </div>
   </section>
   <div id="workspace-shell" hidden>
+    <aside id="guest-notice" class="guest-notice" hidden><strong>Guest session</strong>
+      <span>Files and results stay in this tab. Download them before reloading or leaving.</span></aside>
     <section class="study-bar">
       <div class="study-identity">
-        <label for="studies">Private studies</label>
+        <label for="studies" id="studies-label">Private studies</label>
         <div class="study-select">
           <select id="studies"></select>
           <button id="new-study" class="button" type="button">New study</button>

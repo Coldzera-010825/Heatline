@@ -377,7 +377,7 @@
         ] : []),
         ["Currently sunlit length in paired cells", distance(event.sunM)],
         ["Sunlit length converted to shade", distance(event.convertedM)],
-      ]), options([["baseline", "Baseline map"], ["scenario", "Scenario map"]], callbacks.layer, callbacks.variant),
+      ]), options([["baseline", "Baseline map"], ["scenario", "Scenario map"], ["reduction", "UTCI reduction map"]], callbacks.layer, callbacks.variant),
         methodDetails("Scenario assumptions and formula", "shade", event.method, event.formula, event.source));
       nodes.splice(2, 0, element("p", "The dashed outline marks a drawn selection. Coloured cells have eligible sun–shade pairs. " +
         (event.coverage?.city ? "Uncoloured routes have no eligible pair or no modelled path." : "Paired inputs cover only the outlined pilot."), "data-note"));

@@ -53,6 +53,9 @@
   let ready = false, stage = -1, day = 19, cityLayer = "lst", view = "flat", playback;
   let popup, hover, gridKey, gridRequest = 0, drawnGrid = L.empty, barsGrid, resolution = "";
   let stations = [], activeStation, comparison, observationRequest = 0, pairByCell = new Map();
+  let stationView = "bars", wowColumns;
+  const stationPitch = () => stationView === "bars" ? 50 : 0;
+  const stationPair = () => Boolean(activeStation && comparison && activeStation !== comparison);
   let drawing = false, corner, busy = false, analysisRun = 0;
   let regionalState, regionalLoading = false, regionalRequest = 0, regionalFrame;
   const detailedEvent = "E3_2022-07";
@@ -108,7 +111,8 @@
     census()?.coverage > 0 && displayedSnapshot()?.surfacePacked);
   const archiveLayer = () => archiveState?.layers?.find(layer => layer.id === archiveState.selected[stage]);
   const adminPath = file => "data/admin/" + file;
-  const streetKeys = ["case-utci", "case-baseline", "case-scenario"];
+  const shadeKeys = ["baseline", "scenario", "reduction"];
+  const streetKeys = ["case-utci", ...shadeKeys.map(key => "case-" + key)];
   const clipFeature = (clip, feature) => {
     if (!clip) return feature;
     const { type, coordinates } = feature.geometry;
@@ -250,8 +254,8 @@
     if (!a) return;
     popup?.remove();
     hover?.remove();
-    if (b) frameBounds(rectangle(a.coordinates, b.coordinates), 13.25, 33);
-    else move({ center: a.coordinates, zoom: 13.3, pitch: 42, bearing: -15 });
+    if (b) frameBounds(rectangle(a.coordinates, b.coordinates), 13.25, stationPitch());
+    else move({ center: a.coordinates, zoom: 13.3, pitch: stationPitch(), bearing: -15 });
   }
 
   function showPopup(position, text, transient = false) {
@@ -286,7 +290,7 @@
         Number.isFinite(p.lst) && R.format(p.lst, 1) + "°C co-located Landsat LST",
         pair && "Pilot pair · " + R.format(pair[6]) + "°C sun / " + R.format(pair[7]) + "°C building shade"].filter(Boolean).join("\n");
     }
-    if (["scenario", "baseline", "case-scenario", "case-baseline"].includes(key)) return [label,
+    if (shadeKeys.includes(key.replace(/^case-/, ""))) return [label,
       "Baseline " + R.format(p.baseline) + "°C · Scenario " + R.format(p.scenario) + "°C",
       R.distance(p.converted_m) + " sunlit route length converted"].join("\n");
     if (populationLayers.includes(key)) return [label, key !== "residents" ? R.format(p.temperature) + "°C residential LST" : "",
@@ -360,6 +364,12 @@
       layout: { visibility: "none", "text-field": ["get", "name"], "text-size": 13, "text-anchor": "bottom",
         "text-offset": [0, -.35], "text-allow-overlap": true },
       paint: { "text-color": ["get", "accent"], "text-halo-color": "#1c1612", "text-halo-width": 1.8 } });
+    map.addLayer({ id: "station-base", type: "circle", source: "wow-stations", layout: { visibility: "none" },
+      paint: { "circle-radius": ["case", ["has", "value"], 10, 4.5], "circle-pitch-alignment": "map",
+        "circle-color": ["case", ["has", "value"], L.color("wow"), "#827b71"],
+        "circle-opacity": ["case", ["has", "value"], .30, .85], "circle-blur": ["case", ["has", "value"], .65, 0],
+        "circle-stroke-color": "#ffe0a6", "circle-stroke-width": ["case", ["get", "review"], 1.25, 0] } });
+    wowColumns = window.HEATLINE_WOW_COLUMNS.install(map, L);
     map.addLayer({ id: "station-point", type: "circle", source: "wow-stations", layout: { visibility: "none" },
       paint: { "circle-radius": ["case", ["!=", ["get", "state"], 0], 7, 4.5],
         "circle-color": ["match", ["get", "state"], 1, "#ffe0ae", 2, "#7cced7",
@@ -377,12 +387,15 @@
       e.preventDefault();
       if (!busy && !caseLoading && e.features?.[0]?.properties.region) chooseCase(e.features[0].properties.region);
     });
-    map.on("click", "station-point", e => {
-      if (busy || drawing) return;
-      const item = e.features[0].properties;
-      selectStation(item.id);
-      showPopup(e.lngLat, [item.name, Number.isFinite(item.value) ?
-        day + " Jul UTC · peak hourly reading " + R.format(item.value, 1) + "°C" : "No valid air temperature on " + day + " Jul UTC",
+    for (const id of ["station-column", "station-point", "station-base"]) map.on("click", id, e => {
+      if (busy || drawing || e.defaultPrevented) return;
+      const item = stations.find(station => station.id === e.features?.[0]?.properties.id);
+      if (!item) return;
+      e.preventDefault();
+      if (!stationPair()) selectStation(item.id);
+      const value = item.peaks?.[day];
+      showPopup(e.lngLat, [item.name, Number.isFinite(value) ?
+        day + " Jul UTC · peak hourly reading " + R.format(value, 1) + "°C" : "No valid air temperature on " + day + " Jul UTC",
         item.review ? "Event peak flagged for review" : "WOW community observations"].join("\n"));
     });
     map.on("click", "archive-station-point", e => {
@@ -408,7 +421,7 @@
     for (const id of ["heat-hotspot-dot", "heat-hotspot-label"]) map.on("click", id, e => {
       if (!drawing && e.features?.length) showPopup(e.features[0].geometry.coordinates, "UTCI hotspot · " + e.features[0].properties.label);
     });
-    for (const id of ["pin", "pin-name", "station-point", "archive-station-point", "metric-fill", "metric-extrusion", ...globalGridLayers, "heat-hotspot-dot", "heat-hotspot-label"]) {
+    for (const id of ["pin", "pin-name", "station-point", "station-base", "station-column", "archive-station-point", "metric-fill", "metric-extrusion", ...globalGridLayers, "heat-hotspot-dot", "heat-hotspot-label"]) {
       map.on("mouseenter", id, () => { if (!drawing) map.getCanvas().style.cursor = "pointer"; });
       map.on("mouseleave", id, () => {
         if (!drawing) map.getCanvas().style.cursor = "";
@@ -424,7 +437,8 @@
     map.on("moveend", event => {
       if (event.heatlineSpin) spinning = false;
       if (stage < 0) requestAnimationFrame(spinGlobe);
-      else if (!event.heatlineSpin && layerKey() !== "wow") refreshGrid();
+      else if (layerKey() === "wow") wowColumns.resize();
+      else if (!event.heatlineSpin) refreshGrid();
     });
     review.install();
     districts.install();
@@ -762,9 +776,9 @@
   function shadeFeatures(event) {
     if (!event) return [];
     if (!event.mapStep) return event.features?.features ?? [];
-    return event.mapRows.map(([x, y, path_m, converted_m, baseline, scenario]) => ({
+    return event.mapRows.map(([x, y, path_m, converted_m, baseline, scenario, reduction]) => ({
       type: "Feature", geometry: { type: "Polygon", coordinates: [overviewRing(x, y, event.mapStep)] },
-      properties: { path_m, converted_m, baseline, scenario, meters: 500 },
+      properties: { path_m, converted_m, baseline, scenario, reduction: reduction ?? baseline - scenario, meters: 500 },
     }));
   }
 
@@ -834,7 +848,7 @@
           features = (detail.analysis.features?.features ?? []).map(feature => ({ ...feature, properties: { ...feature.properties, value: feature.properties.utci } }));
           metres = "100 m walking grid";
         } else {
-          const field = key.endsWith("baseline") ? "baseline" : "scenario";
+          const field = key.replace(/^case-/, "");
           features = shadeFeatures(detail.event).map(feature => ({ ...feature, properties: { ...feature.properties, value: feature.properties[field] } }));
           metres = detail.event.mapResolution;
         }
@@ -975,6 +989,7 @@
 
   function updateVisibility() {
     const key = layerKey(), spec = L.layers[key];
+    const reduction = key === "reduction" || key === "case-reduction";
     const grid = gridKey === key && drawnGrid.features.length > 0;
     const archiveRaster = (usingArchive() || detailedRaster()) && spec?.type === "raster";
     const archiveStation = usingArchive() && spec?.type === "station";
@@ -991,7 +1006,11 @@
       visible(slot.extrusion, show && view === "bars");
     }
     visible("london-buildings", !usingArchive() && (stage === 2 || stage === 3) && (!grid || view === "flat"));
-    visible("station-point", key === "wow");
+    const wow = key === "wow";
+    const selectedView = wow ? stationView : view;
+    visible("station-point", wow && stationView === "flat");
+    visible("station-base", wow && stationView === "bars");
+    visible("station-column", wow && stationView === "bars");
     visible("regional-outline", stage === 4 && Boolean(regionalState));
     visible("regional-label", stage === 4 && Boolean(regionalState));
     for (const [i, slot] of ["a", "b"].entries()) visible("compare-image-" + slot + "-layer",
@@ -1004,16 +1023,20 @@
     $("timeline-hl").hidden = stage >= 0 && key !== "wow";
     $("layer-controls").hidden = stage !== 0;
     $("map-controls").hidden = stage > 0 || usingArchive();
-    $("grid-view-toggle").hidden = !spec || key === "wow" || archiveStation;
-    $("bar-note").hidden = view !== "bars" || !spec || key === "wow" || archiveStation;
+    $("grid-view-toggle").hidden = !spec || archiveStation;
+    $("grid-view-toggle").setAttribute("aria-label", wow ? "Station display" : "Grid visualization");
+    $("bar-note").hidden = selectedView !== "bars" || !spec || archiveStation;
     const cutoff = L.barCutoff(key);
     if (!$("bar-note").hidden) {
-      $("bar-note").textContent = cutoff === undefined ? "Equal-height bars by land-cover class" :
+      $("bar-note").textContent = wow ? "Taller columns show higher daily peaks · gray dots have no reading" :
+        cutoff === undefined ? "Equal-height bars by land-cover class" :
         "3D bars ≥ " + R.format(cutoff, 3) + spec.unit + " · exaggerated heights" +
         (grid && !barsGrid?.features.length ? " · none in view" : "");
     }
-    $("view-flat").setAttribute("aria-pressed", String(view === "flat"));
-    $("view-bars").setAttribute("aria-pressed", String(view === "bars"));
+    $("view-flat").textContent = wow ? "2D points" : "Flat grid";
+    $("view-bars").textContent = wow ? "3D columns" : "3D bars";
+    $("view-flat").setAttribute("aria-pressed", String(selectedView === "flat"));
+    $("view-bars").setAttribute("aria-pressed", String(selectedView === "bars"));
     const useDays = stage < 0 || key === "wow";
     $("day").disabled = $("play-days").disabled = busy || !useDays;
     $("day").value = String(useDays ? day : 18);
@@ -1031,10 +1054,18 @@
     $("legend-label").textContent = spec.label;
     $("legend-ramp").hidden = $("legend-ends").hidden = !spec.colors;
     $("legend-classes").hidden = !spec.classes;
-    $("legend-stations").hidden = key !== "wow";
+    $("legend-stations").hidden = !wow;
     if (spec.colors) {
-      $("legend-ramp").style.background = "linear-gradient(90deg," + spec.colors.join(",") + ")";
-      $("legend-ends").replaceChildren(...spec.range.map((n, i) => R.element("span", (i ? "≥" : "≤") + n + spec.unit)));
+      const [minimum, maximum] = spec.range;
+      const tickPosition = n => (n - minimum) / (maximum - minimum) * 100 + "%";
+      $("legend-ramp").style.background = "linear-gradient(90deg," + L.ramp(spec).map(([n, color]) => color + " " + tickPosition(n)).join(",") + ")";
+      const ticks = spec.range.map((n, i) => R.element("span", (i ? "≥" : "≤") + n + spec.unit));
+      if (reduction) {
+        const zero = R.element("span", "0°C", "legend-zero");
+        zero.style.left = tickPosition(0);
+        ticks.push(zero);
+      }
+      $("legend-ends").replaceChildren(...ticks);
     }
     if (spec.classes) $("legend-classes").replaceChildren(...spec.classes.map(([, name, color]) => {
       const li = R.element("li", name);
@@ -1047,8 +1078,10 @@
       key === "regional-utci" ? regionalState.street.timeUtc.slice(0, 16).replace("T", " ") + " UTC" :
       archiveStation ? archiveState.stationPeriod === "day" ? archiveState.date + " UTC" : "Full archived event · UTC" :
       usingArchive() && !archiveRaster && !streetKeys.includes(key) && !populationLayers.includes(key) ? archiveState.date + " UTC" : "";
-    $("provenance").textContent = [time, spec.source,
-      key === "era5" ? globeSlots[globalFront].resolution : resolution].filter(Boolean).join(" · ");
+    const shadeTime = reduction ? results.get(3)?.event?.timeUtc : undefined;
+    const source = reduction ? "Baseline − scenario · valid pairs" : spec.source;
+    $("provenance").textContent = [shadeTime ? shadeTime.slice(0, 16).replace("T", " ") + " UTC" : time,
+      source, key === "era5" ? globeSlots[globalFront].resolution : resolution].filter(Boolean).join(" · ");
   }
 
   function paintGlobalMix(mix) {
@@ -1187,7 +1220,7 @@
     if (reviewing()) { updateVisibility(); return review.viewport(); }
     if (missingStreetCase()) { updateVisibility(); return; }
     const result = results.get(stage), key = layerKey();
-    if (result?.districtComparison && (populationLayers.includes(key) || streetKeys.includes(key) || ["utci", "baseline", "scenario"].includes(key))) {
+    if (result?.districtComparison && (populationLayers.includes(key) || streetKeys.includes(key) || key === "utci" || shadeKeys.includes(key))) {
       if (usingArchive()) registerArchiveLayers();
       return refreshDistrictGrid(result, key);
     }
@@ -1219,7 +1252,7 @@
           fullCity || !detail || (p.lon >= w && p.lon <= e && p.lat >= s && p.lat <= n));
         grid = { resolution: detail ? "100 m walking grid" : "500 m overview · zoom for 100 m", features: L.collection(features.map(feature =>
           ({ ...feature, properties: { ...feature.properties, value: feature.properties.utci } }))) };
-      } else if (key === "baseline" || key === "scenario") {
+      } else if (shadeKeys.includes(key)) {
         L.layers[key].source = [result.event.source ?? "SOLWEIG pilot", result.event.timeUtc.slice(0, 16).replace("T", " ") + " UTC"].join(" · ");
         const display = await streetMapResult(result, detailWindow(result, area()?.bounds), "shade");
         grid = { resolution: display?.event.mapResolution ?? "100 m paired grid", features: L.collection(shadeFeatures(display?.event).map(feature => ({
@@ -1252,7 +1285,15 @@
 
   function setView(value) {
     const key = layerKey();
-    if (!L.layers[key] || key === "wow" || L.layers[key].type === "station") return false;
+    if (!L.layers[key] || L.layers[key].type === "station") return false;
+    if (key === "wow") {
+      stationView = value === "bars" ? "bars" : "flat";
+      popup?.remove();
+      hover?.remove();
+      updateVisibility();
+      map.easeTo({ pitch: stationPitch(), duration: R.reducedMotion() ? 0 : 520 });
+      return true;
+    }
     view = value === "bars" ? "bars" : "flat";
     popup?.remove();
     hover?.remove();
@@ -1313,9 +1354,9 @@
       $("station-period").value = "day";
       results.delete(0);
       renderResult();
-      updateStationPoints();
+      updateStationPoints(true);
       updateVisibility();
-      return renderObservations();
+      void renderObservations();
     }
   }
 
@@ -1367,12 +1408,16 @@
     }
   }
 
-  function updateStationPoints() {
-    map.getSource("wow-stations").setData(L.collection(stations.map(item => ({
+  function updateStationPoints(animate = false) {
+    const items = stationPair() ? stations.filter(item => item.id === activeStation || item.id === comparison) : stations;
+    const points = items.map(item => ({
       type: "Feature", geometry: { type: "Point", coordinates: item.coordinates },
       properties: { id: item.id, name: item.name, review: Boolean(item.review), value: item.peaks?.[day],
         state: item.id === activeStation ? 1 : item.id === comparison ? 2 : 0 },
-    }))));
+    }));
+    map.getSource("wow-stations").setData(L.collection(points));
+    wowColumns.update(points, animate && stationView === "bars" && !R.reducedMotion());
+    $("weather-reference").hidden = stage !== 0 || usingArchive() || layerKey() === "wow" && stationPair();
     updateStationBeacons();
   }
 
@@ -1402,8 +1447,8 @@
 
   function selectStation(id) {
     activeStation = id || undefined;
-    if (comparison === activeStation) comparison = undefined;
-    $("station-compare").hidden = true;
+    if (!activeStation || comparison === activeStation) comparison = undefined;
+    $("station-compare").hidden = !comparison;
     results.delete(0);
     stationChoices();
     updateStationPoints();
@@ -1728,6 +1773,7 @@
     }
     if (key === "utci") { openChapter(2); return; }
     if (!L.londonLayers.includes(key)) return;
+    const enteringWow = key === "wow" && layerKey() !== "wow";
     cityLayer = key;
     if (stage !== 0) openChapter(0);
     else {
@@ -1737,6 +1783,7 @@
       clearGrid();
       renderChapter();
       refreshGrid();
+      if (enteringWow) map.easeTo({ pitch: stationPitch(), duration: R.reducedMotion() ? 0 : 580 });
     }
     if (key === "wow" && requestedDay) setDay(requestedDay);
   }
@@ -2128,7 +2175,7 @@
     updateCaseHeader();
     $("case-event-controls").hidden = stage < 0 || stage === 2 || stage === 4;
     $("archive-workspace").hidden = !usingArchive() || stage >= 2;
-    $("weather-reference").hidden = stage !== 0 || usingArchive();
+    $("weather-reference").hidden = stage !== 0 || usingArchive() || key === "wow" && stationPair();
     $("station-analysis").hidden = key !== "wow";
     $("area-analysis").hidden = !cityChapters.includes(stage);
     $("analysis-steps").hidden = stage === 0;
@@ -2237,7 +2284,7 @@
       if (area()?.bounds && results.has(index)) frameBounds(area().bounds, 15.6);
       else if (index === 1 && districtExtent) frameBounds(districtExtent, 13.4);
       else if (index === 2 && savedArea?.scope === "london") frameBounds(savedArea.bounds);
-      else move({ ...camera, pitch: view === "bars" ? index < 0 ? 24 : 51 : camera.pitch }, animate);
+      else move({ ...camera, pitch: layerKey() === "wow" ? stationPitch() : view === "bars" ? index < 0 ? 24 : 51 : camera.pitch }, animate);
     }
     refreshGrid();
   }
@@ -2830,6 +2877,7 @@
     if (results.get(0)?.event?.peaks?.length === 2) { results.delete(0); renderResult(); }
     updateStationPoints();
     updateControls();
+    if (stationPair()) focusStations(activeStation, comparison);
   };
   $("analyse-station").onclick = () => withBusy(() => perform("station"));
   $("compare-stations").onclick = () => withBusy(() => perform("station", { compare: true }));

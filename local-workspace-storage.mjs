@@ -1,4 +1,4 @@
-// The loopback preview uses the same object API with in-memory storage.
+// The loopback preview and each guest tab use an isolated in-memory object store.
 export function localWorkspace() {
   const objects = new Map();
   return {
