@@ -73,6 +73,26 @@ assert.deepEqual(dates.districtComparison.areas.map(area => area.name), ["Camden
 assert(dates.event.air.validCells > 0 && dates.event.air.resolution === "0.1°");
 const invalidPair = await api({ kind: "weather", archiveCase: london, districts: district(camden, camden) });
 assert.equal(invalidPair.status, "clarify");
+const ealing = byCode("E09000009");
+const threeAreas = { level: "boroughs", ids: [camden.id, westminster.id, ealing.id] };
+const invalidList = await api({ kind: "weather", archiveCase: london, districts: { ...threeAreas, ids: [camden.id, camden.id] } });
+assert.equal(invalidList.status, "clarify");
+const outputs = {
+  weather: () => true,
+  groups: result => result.event.tiles.length > 0,
+  exposure: result => result.analysis.mapRows.length > 0,
+  shade: result => (result.event.mapRows ?? result.event.features.features).length > 0,
+  review: result => result.review.grid.cells.length > 0,
+};
+for (const [kind, hasResult] of Object.entries(outputs)) {
+  const result = await api({ kind, archiveCase: london, districts: threeAreas, mapFormat: "compact",
+    date: "2022-07-18", group: "older", reference: "all", shadePercent: 25 });
+  assert(result.ok);
+  const { areas, primaryId } = result.districtComparison;
+  assert.equal(primaryId, camden.id);
+  assert.deepEqual(areas.map(area => area.id), threeAreas.ids);
+  assert(areas.every(area => area.ok && hasResult(area.id === primaryId ? result : area.map)), kind);
+}
 const coded = await api({ kind: "groups", archiveCase: london, districts: district(cityOfLondon, camden), group: "older", reference: "all" });
 const legacy = await api({ kind: "population", borough: cityOfLondon.code, group: "older", reference: "all" });
 assert.deepEqual(coded.event.groups, legacy.event.groups);
@@ -104,6 +124,13 @@ const clippedParis = await api({ kind: "population", archiveCase: paris, date: "
   districts: { level: "arrondissements", first: louvre.id, second: bourse.id } });
 assert(clippedParis.districtComparison.areas.every(area => area.ok) && clippedParis.event.surface.population < 25000);
 assert.equal(clippedParis.districtComparison.full, false);
+const parisMunicipalities = districtCatalog.cities.Paris.find(layer => layer.level === "municipalities");
+const parisIds = ["Versailles", "Paris"].map(name => parisMunicipalities.units.find(unit => unit.name === name).id);
+const partial = await api({ kind: "exposure", archiveCase: archiveCase("Paris"), mapFormat: "compact",
+  districts: { level: "municipalities", ids: parisIds } });
+assert(partial.ok && partial.analysis.features.features.length > 0);
+assert.equal(partial.districtComparison.primaryId, parisIds[1]);
+assert.deepEqual(partial.districtComparison.areas.map(area => area.ok), [false, true]);
 console.log("Administrative boundaries, all five chapter comparisons, code joins and line clipping passed.");
 const importMethods = await ask("研究工作区支持什么文件格式？", paris, { chapter: 2 });
 assert.equal(importMethods.action.type, "answer");

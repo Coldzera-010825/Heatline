@@ -80,15 +80,17 @@
   const missingStreetCase = () => stage === 2 && Boolean(archiveState && !archiveState.record);
   const cityStreetModel = () => adminCatalog?.cityStreetModels?.[caseRegion]?.[caseEvent];
   const reviewModel = () => cityStreetModel() ?? adminCatalog?.streetModels?.[caseRegion]?.[caseEvent];
+  const districtResults = window.HEATLINE_DISTRICTS.results;
   const districts = window.HEATLINE_DISTRICTS.create({ map, read: file => A.readAdmin(file), changed: changeDistrict });
   const review = window.HEATLINE_REVIEW.create({
     map, active: reviewing, canInspect: () => ready && !busy && !drawing && !caseLoading,
     census: () => adminCatalog?.cities?.[caseRegion]?.reviewCensus,
     context: () => ({ archiveCase: { region: caseRegion, event: caseEvent }, bounds: districts.active() ? undefined : area()?.bounds,
-      districts: districts.payload(), shadePercent: Number($("shade-percent").value), clip: districts.clip() ?? archiveState?.clip ?? detailedClip }),
+      districts: districts.payload(), shadePercent: Number($("shade-percent").value), clip: archiveState?.clip ?? detailedClip }),
+    districtClip: districts.clip, districtResults,
     request: async (body, onProgress = () => {}) => {
       const result = await receive("/api/analysis", { ...body, clip: undefined, mapFormat: "compact" }, onProgress);
-      if (body.kind === "review" && !body.bounds && !body.point && result.districtComparison && reviewing()) {
+      if (body.kind === "review" && !body.bounds && !body.point && !body.mapOnly && result.districtComparison && reviewing()) {
         districtComparisons.set(stage, result.districtComparison);
         districts.render(result.districtComparison);
       }
@@ -109,9 +111,11 @@
   const streetKeys = ["case-utci", "case-baseline", "case-scenario"];
   const clipFeature = (clip, feature) => {
     if (!clip) return feature;
-    if (feature.geometry.type !== "Polygon") return feature;
-    const [ring] = feature.geometry.coordinates;
-    const xs = ring.map(p => p[0]), ys = ring.map(p => p[1]);
+    const { type, coordinates } = feature.geometry;
+    const rings = type === "Polygon" ? [coordinates[0]] : type === "MultiPolygon" ? coordinates.map(polygon => polygon[0]) : [];
+    if (!rings.length) return feature;
+    const points = rings.flat();
+    const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
     return clip.clip(feature, [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
   };
   function chapter() {
@@ -266,7 +270,8 @@
     const key = layerKey(), spec = L.layers[key];
     if (!spec) return "";
     if (spec.classes) return "Land cover · " + (spec.classes.find(([code]) => code === p.value)?.[1] ?? "Other");
-    const label = (key === "era5" ? p.day + " Jul · " : p.city ? p.city + " · " : "") +
+    const place = p.districtName ?? p.city;
+    const label = (key === "era5" ? p.day + " Jul · " : place ? place + " · " : "") +
       spec.label + " " + R.format(p.value) + spec.unit;
     if (!detail) return label;
     if (key === "case-utci" || key === "utci" && results.get(2)?.analysis?.cityModel) {
@@ -670,6 +675,7 @@
       if (stage === 0) { reportAnalysis(); renderResult(); setStep("area"); }
     }
     updateArchiveControls();
+    areaLabel();
     popup?.remove();
     hover?.remove();
     refreshGrid();
@@ -762,6 +768,13 @@
     }));
   }
 
+  function residentialGrid(event, key) {
+    const { metricTiles, packedMap, tiles } = event;
+    const compact = packedMap?.rows.map(([col, row, temp, pop, groups]) => [(col + packedMap.origin[0]) * packedMap.step[0],
+      (row + packedMap.origin[1]) * packedMap.step[1], ...packedMap.step, temp, pop, groups ?? {}]);
+    return metricTiles || compact ? L.residentialResultGrid(metricTiles ?? compact, key, packedMap?.metres ?? 500) : L.populationGrid(tiles ?? [], key);
+  }
+
   const streetDetails = new WeakMap();
 
   function detailWindow(result, selection) {
@@ -776,7 +789,7 @@
     if (bounds[0] < bounds[2] && bounds[1] < bounds[3]) return bounds;
   }
 
-  async function streetMapResult(result, bounds, kind) {
+  async function streetMapResult(result, bounds, kind, district) {
     if (!bounds) return result;
     const key = bounds.join(",");
     let detail = streetDetails.get(result);
@@ -784,7 +797,7 @@
       const promise = receive("/api/analysis", {
         kind, bounds, coverage: usingArchive() && archiveState.street?.scope !== "city" ? undefined : "city", mapOnly: true, mapFormat: "compact",
         archiveCase: { region: caseRegion, event: caseEvent }, shadePercent: result.event?.shadePercent,
-        districts: result.districtComparison ? districts.payload() : undefined,
+        districts: district,
       }, () => {}).catch(() => undefined);
       detail = { key, promise };
       streetDetails.set(result, detail);
@@ -794,6 +807,67 @@
     if (local?.status === "empty") return undefined;
     if (local?.ok && (local.analysis?.mapResolution ?? local.event?.mapResolution)?.startsWith("100")) return local;
     return result;
+  }
+
+  async function refreshDistrictGrid(result, key) {
+    const selected = districtResults(result).map(area => ({ ...area, bounds: districts.bounds(area.id), clip: districts.clip(area.id) }));
+    const population = populationLayers.includes(key), exposure = key === "utci" || key === "case-utci";
+    const kind = exposure ? "exposure" : "shade";
+    const windows = selected.map(area => population ? undefined : detailWindow(area.result, area.bounds));
+    const frame = [caseRegion, caseEvent, key, result.run, view, ...windows.map(bounds => bounds?.join(","))].join("/");
+    if (archiveFrame === frame && gridKey === key) { updateBars(); updateVisibility(); return; }
+    const request = ++gridRequest;
+    legendStatus("Loading area result maps…");
+    try {
+      const maps = await Promise.all(selected.map(async ({ id, name, result: output, clip }, index) => {
+        if (!clip) return { features: [] };
+        const detail = population ? output : await streetMapResult(output, windows[index], kind, { level: districts.payload()?.level, ids: [id] });
+        if (!detail) return { features: [] };
+        let features, metres;
+        if (population) {
+          features = residentialGrid(detail.event, key).features;
+          metres = (detail.event.packedMap?.metres ?? 500) + " m result grid";
+        } else if (exposure && output.analysis.cityModel) {
+          features = cityStreetGrid(detail.analysis);
+          metres = detail.analysis.mapResolution;
+        } else if (exposure) {
+          features = (detail.analysis.features?.features ?? []).map(feature => ({ ...feature, properties: { ...feature.properties, value: feature.properties.utci } }));
+          metres = "100 m walking grid";
+        } else {
+          const field = key.endsWith("baseline") ? "baseline" : "scenario";
+          features = shadeFeatures(detail.event).map(feature => ({ ...feature, properties: { ...feature.properties, value: feature.properties[field] } }));
+          metres = detail.event.mapResolution;
+        }
+        return { metres, features: features.map(feature => clipFeature(clip, feature)).filter(Boolean)
+          .map(feature => ({ ...feature, properties: { ...feature.properties, districtId: id, districtName: name } })) };
+      }));
+      if (request !== gridRequest || key !== layerKey()) return;
+      const features = maps.flatMap(item => item.features);
+      const scales = [...new Set(maps.map(item => item.metres).filter(Boolean))];
+      if (key === "archive-population-map") {
+        const source = "GHS-POP 2020 + Landsat";
+        L.layers[key] = { ...L.layers[key], source: source + " · " + result.event.timeUtc.slice(0, 16).replace("T", " ") + " UTC" };
+        L.attr[key] = source;
+      }
+      if (!population) {
+        const data = exposure ? result.analysis : result.event;
+        if (data?.source) L.layers[key].source = data.source + " · " + data.timeUtc.slice(0, 16).replace("T", " ") + " UTC";
+      }
+      archiveFrame = frame;
+      gridKey = key;
+      drawnGrid = L.collection(features);
+      barsGrid = undefined;
+      resolution = scales.length > 1 ? "100 m cells · 500 m overview where needed" : scales[0] ?? "";
+      map.getSource("metric-grid").setData(drawnGrid);
+      map.setPaintProperty("metric-fill", "fill-color", L.color(key));
+      map.setPaintProperty("metric-extrusion", "fill-extrusion-color", L.color(key));
+      updateBars();
+      legendStatus(features.length ? "" : "No valid cells in the selected areas.");
+    } catch {
+      if (request !== gridRequest) return;
+      legendStatus("The area result maps could not load. Move the map to retry.");
+    }
+    updateVisibility();
   }
 
   async function refreshArchiveGrid() {
@@ -816,11 +890,8 @@
       let streetResolution;
       if (popResult) {
         const selection = area()?.bounds;
-        const { metricTiles, packedMap, tiles, timeUtc, censusSource } = result.event;
-        const compact = packedMap?.rows.map(([col, row, temp, pop, groups]) => [(col + packedMap.origin[0]) * packedMap.step[0],
-          (row + packedMap.origin[1]) * packedMap.step[1], ...packedMap.step, temp, pop, groups ?? {}]);
-        const metres = packedMap?.metres ?? 500;
-        const population = metricTiles || compact ? L.residentialResultGrid(metricTiles ?? compact, key, metres) : L.populationGrid(tiles, key);
+        const { timeUtc, censusSource } = result.event;
+        const population = residentialGrid(result.event, key);
         const source = key === "archive-population-map" ? "GHS-POP 2020 + Landsat" : censusSource ?? census()?.source ?? "Census 2021";
         const label = key === "limited" ? census()?.groups?.limited?.includes("disability") ?
           "Resident share with a disability" : "Resident share with limited activities" : L.layers[key].label;
@@ -865,9 +936,6 @@
         map.getSource("archive-station-points").setData(L.collection(points));
       }
       if (request !== gridRequest || key !== layerKey()) return;
-      if (result?.districtComparison && (popResult || streetKeys.includes(key))) {
-        features = features.map(feature => clipFeature(districts.clip(), feature)).filter(Boolean);
-      }
       archiveFrame = frame;
       gridKey = key;
       drawnGrid = L.collection(features);
@@ -1118,14 +1186,18 @@
     if (stage < 0) return showGlobalDay();
     if (reviewing()) { updateVisibility(); return review.viewport(); }
     if (missingStreetCase()) { updateVisibility(); return; }
+    const result = results.get(stage), key = layerKey();
+    if (result?.districtComparison && (populationLayers.includes(key) || streetKeys.includes(key) || ["utci", "baseline", "scenario"].includes(key))) {
+      if (usingArchive()) registerArchiveLayers();
+      return refreshDistrictGrid(result, key);
+    }
     if (usingArchive() || detailedRaster()) {
       if (usingArchive()) registerArchiveLayers();
       return refreshArchiveGrid();
     }
     if (stage === 4) return refreshRegionalGrid();
-    const key = layerKey();
     if (!key || key === "wow") { updateVisibility(); return; }
-    const id = ++gridRequest, bounds = map.getBounds().toArray().flat(), zoom = map.getZoom(), result = results.get(stage);
+    const id = ++gridRequest, bounds = map.getBounds().toArray().flat(), zoom = map.getZoom();
     legendStatus("Loading layer…");
     try {
       let grid;
@@ -1155,14 +1227,13 @@
         }))) };
       } else if (populationLayers.includes(key)) {
         if (key === "limited") L.layers.limited.label = "Resident share with limited activities";
-        const features = result.event.metricTiles ? L.residentialResultGrid(result.event.metricTiles, key, 500) : L.populationGrid(result.event.tiles, key);
+        const features = residentialGrid(result.event, key);
         grid = { resolution: "500 m display grid", features };
       } else grid = await L.londonGrid(key, bounds, zoom);
       if (id !== gridRequest || key !== layerKey()) return;
       const selectedBounds = area()?.bounds;
       const filtered = selectedBounds && result ? grid.features.features.map(feature => L.clip(feature, selectedBounds)).filter(Boolean) : grid.features.features;
-      drawnGrid = L.collection(filtered.map(feature => clipFeature(detailedClip, feature))
-        .map(feature => feature && result?.districtComparison ? clipFeature(districts.clip(), feature) : feature).filter(Boolean));
+      drawnGrid = L.collection(filtered.map(feature => clipFeature(detailedClip, feature)).filter(Boolean));
       gridKey = key;
       resolution = grid.resolution;
       barsGrid = undefined;
@@ -1204,10 +1275,13 @@
       8, ["literal", [0, 0, overview]], 15, ["literal", [0, 0, streetLevel]]]);
   }
 
-  function showHotspots(analysis) {
-    const features = (analysis?.hotspots ?? []).slice(0, 3).map((spot, i) => ({
+  function showHotspots(result) {
+    const district = result?.districtComparison;
+    const spots = district?.areas.length > 1 ? districtResults(result).flatMap(({ name, result: item }) =>
+      (item.analysis.hotspots ?? []).slice(0, 1).map(spot => ({ ...spot, name }))) : (result?.analysis?.hotspots ?? []).slice(0, 3);
+    const features = spots.map((spot, i) => ({
       type: "Feature", geometry: { type: "Point", coordinates: spot.coordinates },
-      properties: { label: (i + 1) + " · " + R.format(spot.utci) + "°C" },
+      properties: { label: (spot.name ?? String(i + 1)) + " · " + R.format(spot.utci) + "°C" },
     }));
     map.getSource("heat-hotspots").setData(L.collection(features));
     for (const id of ["heat-hotspot-arrows", "heat-hotspot-dot", "heat-hotspot-label"]) visible(id, features.length > 0);
@@ -1229,6 +1303,7 @@
     popup?.remove();
     hover?.remove();
     if (stage < 0) return showGlobalDay();
+    if (stage === 0) areaLabel();
     if (results.get(0)?.districtComparison || districtComparisons.has(0)) {
       results.delete(0);
       districtComparisons.delete(0);
@@ -1680,18 +1755,21 @@
   }
 
   function outline() {
-    drawOutline(area()?.bounds);
+    drawOutline(districts.open() ? undefined : area()?.bounds);
   }
 
   function changeDistrict(mode, bounds) {
-    if (mode === "frame") {
-      if (bounds) frameBounds(bounds, 15.3, stage >= 2 ? 25 : 14, 0);
+    if (mode !== "selection") {
+      areaLabel();
+      updateControls();
+      if (districtComparisons.has(stage)) renderResult();
+      if (mode === "frame" && bounds) frameBounds(bounds, 15.3, stage >= 2 ? 25 : 14, 0);
       refreshGrid();
       return;
     }
     for (const index of cityChapters) results.delete(index);
     districtComparisons.clear();
-    if (area() && districts.active()) areas.set(stage, { chosen: true });
+    if (area() && districts.open()) areas.set(stage, { chosen: false });
     review.reset();
     reportAnalysis();
     setStep("area");
@@ -1705,6 +1783,15 @@
   }
 
   function areaLabel() {
+    if (stage === 0) {
+      $("area-name").textContent = districts.open() ? districts.label() || "Choose administrative areas" : "Study area";
+      const date = usingArchive() ? archiveState.date : "2022-07-" + String(day).padStart(2, "0");
+      $("area-hint").textContent = date ? date + " UTC" : "UTC day unavailable";
+      $("area-coverage").hidden = true;
+      $("full-area").textContent = "Use study area";
+      $("full-area").setAttribute("aria-pressed", String(!districts.open()));
+      return;
+    }
     const selection = area();
     if (!selection) return;
     const place = stage === 1 ? results.get(1)?.event?.place : undefined;
@@ -1724,7 +1811,7 @@
     $("full-area").textContent = stage === 1 || fullModel ? (usingArchive() && archiveState.admin.scope === "functional_urban_area" ?
       "Use functional urban area" : "Use Greater London") :
       usingArchive() ? "Use model coverage" : stage === 3 ? "Use paired pilot" : "Use Greater London";
-    $("full-area").setAttribute("aria-pressed", String(selection.chosen && !selection.bounds));
+    $("full-area").setAttribute("aria-pressed", String(!districts.open() && selection.chosen && !selection.bounds));
     const coverage = $("area-coverage");
     coverage.hidden = stage < 2;
     const limit = usingArchive() && model && !fullModel ? "Analysis is limited to " + model.label + "." : "";
@@ -1737,7 +1824,7 @@
       coverage.hidden = model?.scope === "city";
       coverage.textContent = model?.scope === "city" ? "" : "Results cover the available walking model.";
     }
-    if (districts.active()) $("area-name").textContent = districts.label();
+    if (districts.open()) $("area-name").textContent = districts.label() || "Choose administrative areas";
   }
 
   function setDrawing(on) {
@@ -1790,6 +1877,18 @@
   }
 
   function clearAnalysis() {
+    if (busy) return;
+    if (districts.open() && districtComparisons.has(stage)) {
+      results.delete(stage);
+      districtComparisons.delete(stage);
+      if (reviewing()) review.reset();
+      renderResult();
+      clearGrid();
+      setStep("area");
+      $("district-toggle").focus({ preventScroll: true });
+      $("area-analysis").scrollIntoView({ block: "start" });
+      return;
+    }
     if (reviewing()) {
       if (!busy && review.ready()) setArea({ chosen: true });
       return;
@@ -1835,8 +1934,12 @@
     for (const id of ["regional-event", "regional-metric", "regional-first", "regional-second"]) $(id).disabled = busy || !ready || regionalLoading || !adminCatalog;
     $("regional-event").disabled ||= $("regional-metric").value === "street";
     $("view-mode").querySelector('[value="comparison"]').disabled = !adminCatalog;
-    $("run-analysis").disabled ||= drawing || (!districts.active() && !area()?.chosen && !(usingArchive() && stage >= 2));
-    $("district-weather").hidden = stage !== 0 || usingArchive() || !districts.active();
+    const areaPending = districts.open() && !districts.active();
+    $("run-analysis").disabled ||= drawing || (districts.open() ? areaPending : !area()?.chosen && !(usingArchive() && stage >= 2));
+    $("archive-groups").disabled ||= drawing || areaPending;
+    $("rank-boroughs").disabled ||= districts.open();
+    $("archive-weather").hidden = stage !== 0 || districts.open();
+    $("district-weather").hidden = stage !== 0 || !districts.open();
     districts.setBusy(busy || !ready || caseLoading || drawing);
     $("clear-analysis").disabled ||= drawing;
     if (usingArchive() && stage >= 2 && !archiveState.street) {
@@ -1963,7 +2066,7 @@
     const show = Boolean(result) && (stage !== 0 || layerKey() === "wow" || usingArchive() || result.districtComparison);
     const node = $("analysis-result");
     node.hidden = !show;
-    $("analysis-footer").hidden = reviewing() ? !review.ready() : !show || !area();
+    $("analysis-footer").hidden = reviewing() ? !review.ready() : !show || !area() && !result?.districtComparison;
     $("station-observations").hidden = stage === 0 && show;
     for (const link of $("conversation").querySelectorAll('.chat-jump[data-stage="' + stage + '"]')) {
       if (Number(link.dataset.run) === result?.run) continue;
@@ -1971,7 +2074,7 @@
       link.textContent = "Result no longer on map";
     }
     node.replaceChildren();
-    showHotspots(stage === 2 && show && ["utci", "case-utci"].includes(layerKey()) ? result.analysis : undefined);
+    showHotspots(stage === 2 && show && ["utci", "case-utci"].includes(layerKey()) ? result : undefined);
     if (!show) return;
     const blocks = result.event?.kind?.startsWith("archive-") ? A.result(result) : R.render(result, {
       variant: variants[stage],
@@ -1988,6 +2091,10 @@
         refreshGrid();
       },
     });
+    if (result.districtComparison?.areas.length > 1) {
+      const primary = result.districtComparison.areas.find(area => area.id === result.districtComparison.primaryId);
+      node.append(R.element("p", "Detailed results · " + primary.name, "data-note"));
+    }
     if (animate && !R.reducedMotion()) return revealResult(node, blocks);
     node.append(...blocks);
   }
@@ -2023,7 +2130,10 @@
     $("archive-workspace").hidden = !usingArchive() || stage >= 2;
     $("weather-reference").hidden = stage !== 0 || usingArchive();
     $("station-analysis").hidden = key !== "wow";
-    $("area-analysis").hidden = !area();
+    $("area-analysis").hidden = !cityChapters.includes(stage);
+    $("analysis-steps").hidden = stage === 0;
+    $("draw-area").hidden = stage === 0;
+    $("run-analysis").hidden = stage === 0;
     $("population-controls").hidden = stage !== 1 || !canCompareGroups();
     $("archive-groups").hidden = stage !== 1 || !usingArchive() || !canCompareGroups();
     if (stage === 1) updatePopulationGroups();
@@ -2230,7 +2340,7 @@
     setStep("run");
     renderResult();
     clearGrid();
-    progress(selection.second ? "Comparing both administrative areas…" : "Analysing the selected administrative area…");
+    progress(selection.ids.length > 1 ? "Comparing " + selection.ids.length + " administrative areas…" : "Analysing the selected administrative area…");
     const outcome = await receive("/api/analysis", request, progress);
     if (outcome.districtComparison) districtComparisons.set(stage, outcome.districtComparison);
     if (!outcome.ok) {
@@ -2484,7 +2594,8 @@
   }
 
   async function performReview(question, turn) {
-    if (!area()?.chosen) selectArea(undefined);
+    if (districts.open() && !districts.active()) return writeReply(turn, "Choose each administrative area before running a review.");
+    if (!districts.open() && !area()?.chosen) selectArea(undefined);
     const focus = /older|elderly|老年|老人/i.test(question) ? "older" : /child|儿?童|小孩/i.test(question) ? "children" :
       /mobility|limited (?:day-to-day|daily) activities|disab|行动不便|行动受限|活动受限|残疾/i.test(question) ? "limited" : null;
     if (focus && $("review-focus").querySelector(`[value="${focus}"]`).disabled) {
@@ -2495,7 +2606,7 @@
       $("review-focus").onchange();
     }
     setStep("run");
-    addToolCall(turn, "review", { bounds: area()?.bounds });
+    addToolCall(turn, "review", { bounds: districts.open() ? undefined : area()?.bounds });
     const result = await review.analyze(question, progress);
     if (!result) return;
     $("analysis-progress").hidden = true;

@@ -58,6 +58,7 @@ button:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visi
 .area-card strong{display:block;color:#f4dbbf;font-size:14px}
 .analysis-panel .area-card p{margin:3px 0 0;font-size:12px}
 .area-controls,.view-toggle{display:flex;gap:5px;margin-top:8px}
+.area-controls{flex-wrap:wrap}
 .area-controls button,.view-toggle button{border:1px solid #655344;background:#1c1713;color:#f3e0cd;cursor:pointer;padding:6px 8px;font-size:11px}
 .area-controls button:hover,.view-toggle button:hover,.view-toggle button[aria-pressed=true],.area-controls button[aria-pressed=true]{background:#423020;border-color:#d39363}
 .run-analysis{display:flex;justify-content:space-between;width:100%;margin-top:8px;border:1px solid #cf946c;background:#f0b076;color:#24170e;padding:9px 10px;cursor:pointer;font-size:13px;font-weight:600}
@@ -170,18 +171,26 @@ button:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visi
 .data-controls select,.regional-pair>div{min-width:0;width:100%}
 .regional-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:3px 0}
 .regional-pair label{display:block;margin-bottom:5px}
-.district-controls{padding:10px 11px;border:1px solid #594534;background:#211b16}
-.district-controls h2{margin:0 0 4px;font:500 16px/1.2 "Playfair Display",Georgia,serif;color:#f2dcc6}
+.district-controls{margin:10px 0 0;padding-top:9px;border-top:1px solid #594534}
+.district-modes{display:flex;gap:5px;margin-bottom:3px}
+.district-modes button[aria-pressed=true],#district-toggle[aria-expanded=true]{background:#423020;border-color:#d39363;color:#ffe0b9}
 .district-controls label,.district-controls select,.district-controls input{display:block;width:100%;min-width:0}
 .district-controls input{padding:6px 8px;border:1px solid #71533b;background:#1a1613;color:#f2dcc6;font:inherit}
+.district-controls label{margin-bottom:4px}
+.district-choice+.district-choice{margin-top:6px}
+.district-choice-input{display:flex;align-items:stretch;gap:5px}
+.district-choice-input select{flex:1}
+.district-choice .district-remove{flex:0 0 28px;padding:0;font-size:15px}
+#district-add{justify-self:start}
 .district-controls .run-analysis{margin:3px 0 0}
 .district-controls .data-note{margin:1px 0}
 .district-result .district-names{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:7px}
-.district-result .district-name{padding:6px 8px;border-left:3px solid #f4b371;background:#241d17}
-.district-result .district-name + .district-name{border-color:#82cad3}
+.district-result .district-name{padding:6px 8px;border-left:3px solid var(--district-color,#f4b371);background:#241d17}
 .district-result .district-name strong{display:block;overflow-wrap:anywhere}
+.district-result .district-table-scroll{margin-top:6px;max-width:100%;overflow-x:auto}
+.district-result .district-table{min-width:100%}
 .district-result .district-table td{white-space:nowrap}
-.district-result .district-table th:first-child{width:48%}
+.district-result .district-table th:first-child{min-width:105px;width:42%}
 .secondary-action{border:1px solid #69513e;background:#201a15;color:#efd0ae;padding:7px 8px;font:inherit;font-size:11px;cursor:pointer}
 .secondary-action:hover{border-color:#d39363;background:#3a2a1f}
 .reference-card{margin:10px 0 12px;padding:10px;border:1px solid #634a37;background:#201915}

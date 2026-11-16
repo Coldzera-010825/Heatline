@@ -75,20 +75,28 @@ async function handleApi(request, url, env) {
   const readCase = (filename, format) => readAsset("cases", filename, format);
   const readAdmin = (filename, format) => readAsset("admin", filename, format);
   const runArchive = (options, progress) => analyzeArchive(options, progress, readCase, readAdmin);
+  let districtCatalog;
+  const censusInputs = new Map();
+  const readDistrictAdmin = (filename, format) => filename === "catalog.json" ?
+    (districtCatalog ??= readAdmin(filename, format)) : readAdmin(filename, format);
+  const readDistrictCensus = filename => {
+    if (!censusInputs.has(filename)) censusInputs.set(filename, readEvent(filename));
+    return censusInputs.get(filename);
+  };
   async function runDistrict(options, district, progress) {
     if (options.kind === "review" || options.kind === "review-streets") {
-      return analyzeStreetReview(options, progress, readAdmin, district);
+      return analyzeStreetReview(options, progress, readDistrictAdmin, district);
     }
     const { region, event } = options.archiveCase;
     if (options.kind === "groups" && region === "London" && event === "E3_2022-07") {
       if (!matchesSnapshot("2022-07-18T10:52:15Z", options.date, options.time)) {
         return { ok: false, status: "unavailable", reply: "The London Census group analysis uses the 18 July 2022 Landsat snapshot at 10:52 UTC." };
       }
-      const result = await analyzePopulation({ ...options, bounds: undefined, borough: district.code }, progress, readEvent);
+      const result = await analyzePopulation({ ...options, bounds: undefined, borough: district.code }, progress, readDistrictCensus);
       if (result.ok) result.event.inCore = true;
       return result;
     }
-    return analyzeArchive(options, progress, readCase, readAdmin, district);
+    return analyzeArchive(options, progress, readCase, readDistrictAdmin, district);
   }
   async function analyze(options, progress) {
     if (options.coverage === "city" && (options.kind === "shade" || options.kind === "exposure")) {

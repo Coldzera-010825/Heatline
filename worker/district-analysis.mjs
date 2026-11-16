@@ -47,42 +47,68 @@ function measures(kind, result) {
   }
 }
 
+function mapResult(kind, { event, analysis, review }) {
+  if (kind === "review") return { review };
+  if (kind === "exposure") {
+    const { cityModel, mapRows, mapStep, mapResolution, features, hotspots } = analysis;
+    return { analysis: { cityModel, mapRows, mapStep, mapResolution, features, hotspots } };
+  }
+  if (kind === "shade") {
+    const { mapRows, mapStep, mapResolution, features, shadePercent } = event;
+    return { event: { mapRows, mapStep, mapResolution, features, shadePercent } };
+  }
+  if (kind === "population" || kind === "groups") {
+    const { kind, timeUtc, censusSource, tiles, metricTiles, packedMap } = event;
+    return { event: { kind, timeUtc, censusSource, tiles, metricTiles, packedMap } };
+  }
+}
+
 export async function analyzeDistricts(body, progress, read, runArea) {
   const selection = body.districts;
   const region = body.archiveCase?.region, event = body.archiveCase?.event;
+  const requested = selection?.ids ?? [selection?.first, ...(selection?.second == null ? [] : [selection.second])];
   if (typeof region !== "string" || typeof event !== "string" || !supported.has(body.kind) ||
-      typeof selection?.level !== "string" || typeof selection.first !== "string" ||
-      (selection.second != null && (typeof selection.second !== "string" || selection.second === selection.first))) {
-    return problem("clarify", "Choose one or two different administrative areas from the same boundary layer.");
+      typeof selection?.level !== "string" || !Array.isArray(requested) || !requested.length ||
+      requested.some(id => typeof id !== "string" || !id) || new Set(requested).size !== requested.length) {
+    return problem("clarify", "Choose distinct administrative areas from the same boundary layer.");
   }
   if (body.bounds != null && !validBounds(body.bounds)) return problem("clarify", "Choose valid map bounds.");
   const { cities } = await read("districts/catalog.json");
   const layer = Object.hasOwn(cities, region) && cities[region].find(item => item.level === selection.level);
   const detail = body.kind === "review-streets" || body.point != null || body.bounds != null;
-  const ids = [selection.first, ...(!detail && selection.second ? [selection.second] : [])];
-  const units = layer && ids.map(id => layer.units.find(unit => unit.id === id));
-  if (!units || units.some(unit => !unit)) return problem("clarify", "The selected administrative area is unavailable for this city or layer.");
-  let primary;
+  const byId = new Map(layer?.units.map(unit => [unit.id, unit]));
+  const units = requested.map(id => byId.get(id));
+  if (units.some(unit => !unit)) return problem("clarify", "The selected administrative area is unavailable for this city or layer.");
+  if (detail && selection.ids && requested.length > 1) return problem("clarify", "Choose one administrative area for map detail.");
+  let primary, primaryId;
   const areas = [];
-  for (const [index, unit] of units.entries()) {
+  const boundaries = new Map();
+  for (const unit of detail ? units.slice(0, 1) : units) {
     const box = body.bounds ? intersection(body.bounds, unit.bounds) : unit.bounds;
-    const { features } = await read(`districts/${layer.asset}-${unit.shard}.geojson`);
-    const geometry = features.find(feature => feature.id === unit.id)?.geometry;
+    if (!boundaries.has(unit.shard)) {
+      const { features } = await read(`districts/${layer.asset}-${unit.shard}.geojson`);
+      boundaries.set(unit.shard, new Map(features.map(feature => [feature.id, feature.geometry])));
+    }
+    const geometry = boundaries.get(unit.shard).get(unit.id);
     if (!geometry) throw new Error("Missing registered administrative area geometry");
     const mask = modelFootprint({ boundaryClipped: true, geometry });
     const area = { ...unit, bounds: box, geometry, contains: (x, y) => contains(box, x, y) && mask(x, y) };
     const place = layer.full ? unit.name : unit.name + " within the study area";
     progress(`Reading the data for ${place}…`);
     const result = validBounds(box) ? await runArea({ ...body, rank: false, borough: undefined, bounds: box }, { ...area, place, full: layer.full },
-      index === 0 ? progress : () => {}) : problem("empty", "The map view does not intersect this area.");
-    if (index === 0) primary = result;
+      areas.length === 0 ? progress : () => {}) : problem("empty", "The map view does not intersect this area.");
     if (detail) return result;
+    if (!primary || !primary.ok && result.ok) {
+      primary = result;
+      primaryId = unit.id;
+    }
     areas.push({ name: unit.name, id: unit.id, code: unit.code, place, areaKm2: unit.areaKm2, sourceKm2: unit.sourceKm2,
       fraction: unit.fraction, time: result.event?.timeUtc ?? result.event?.date ?? result.analysis?.timeUtc ?? result.review?.timeUtc,
-      ok: result.ok, message: result.ok ? undefined : result.reply, metrics: measures(body.kind, result) });
+      ok: result.ok, message: result.ok ? undefined : result.reply, metrics: measures(body.kind, result),
+      ...(result.ok && unit.id !== primaryId ? { map: mapResult(body.kind, result) } : {}) });
   }
   return { ...primary, districtComparison: { kind: body.kind, layer: layer.label, source: layer.source, url: layer.url,
-    attribution: layer.attribution, full: layer.full, areas } };
+    attribution: layer.attribution, full: layer.full, primaryId, areas } };
 }
 
 function weatherIndex(cells, step) {
