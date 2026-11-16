@@ -1,5 +1,12 @@
 # Heatline changelog
 
+## v26 — Multi-area comparison maps
+
+- Move Administrative areas into the area selection card. Analyse one area or add and remove several areas from the same boundary layer.
+- Draw the results for every covered selection in the residential heat, pedestrian UTCI, shade scenario and field review chapters. Use a shared scale and clip each result to its own boundary.
+- Report coverage per area. Keep available results visible when another selected area lacks matching inputs.
+- Keep street inspection and field briefings tied to the selected location's administrative area. Update Data & Methods and the Atlas knowledge base.
+
 ## v25 — Administrative area analysis
 
 - Add 13 administrative boundary layers for eight cities, including London boroughs, Paris arrondissements, European municipalities and U.S. Census layers.

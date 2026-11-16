@@ -51,15 +51,6 @@
       <label for="case-event">Historical case</label><select id="case-event"></select>
     </div>
     <div id="chapter-map-controls"></div>
-    <section id="district-controls" class="data-controls district-controls" hidden aria-labelledby="district-title">
-      <h2 id="district-title">Administrative areas</h2>
-      <div id="district-level-row"><label for="district-level">Boundary layer</label><select id="district-level"></select></div>
-      <div id="district-filter-row" hidden><label for="district-filter">Find an area</label><input id="district-filter" type="search" autocomplete="off"></div>
-      <label for="district-first">Area A</label><select id="district-first"><option value="">Use the current map scope</option></select>
-      <label for="district-second">Compare with</label><select id="district-second" disabled><option value="">No comparison</option></select>
-      <p id="district-note" class="data-note" role="status"></p>
-      <button id="district-weather" class="run-analysis" type="button" hidden>Analyse area weather <span aria-hidden="true">↗</span></button>
-    </section>
     <section id="weather-reference" aria-label="London air-temperature reference" hidden></section>
     <section id="archive-workspace" aria-label="Historical case data" hidden>
       <div class="data-controls">
@@ -94,7 +85,7 @@
       </div>
     </section>
     <section id="area-analysis" aria-label="Area analysis" hidden>
-      <ol class="analysis-steps" aria-label="Analysis progress">
+      <ol id="analysis-steps" class="analysis-steps" aria-label="Analysis progress">
         <li id="step-area" aria-current="step">Area</li><li id="step-run">Analysis</li><li id="step-result">Results</li>
       </ol>
       <div class="area-card">
@@ -103,8 +94,21 @@
         <p id="area-coverage" class="data-note" hidden></p>
         <div class="area-controls">
           <button type="button" id="draw-area" aria-pressed="false">Draw area</button>
-          <button type="button" id="full-area">Study area</button>
+          <button type="button" id="full-area" aria-pressed="false">Study area</button>
+          <button type="button" id="district-toggle" aria-expanded="false" aria-controls="district-controls">Administrative areas</button>
         </div>
+        <section id="district-controls" class="data-controls district-controls" hidden aria-label="Administrative area selection">
+          <div class="district-modes" role="group" aria-label="Administrative area mode">
+            <button type="button" class="secondary-action" id="district-single" aria-pressed="true">Single area</button>
+            <button type="button" class="secondary-action" id="district-compare" aria-pressed="false">Compare areas</button>
+          </div>
+          <div id="district-level-row" hidden><label for="district-level">Boundary layer</label><select id="district-level"></select></div>
+          <div id="district-filter-row" hidden><label for="district-filter">Find an area</label><input id="district-filter" type="search" autocomplete="off"></div>
+          <div id="district-selects"></div>
+          <button id="district-add" class="secondary-action" type="button" hidden>+ Add area</button>
+          <p id="district-note" class="data-note" role="status"></p>
+          <button id="district-weather" class="run-analysis" type="button" hidden>Analyse area weather <span aria-hidden="true">↗</span></button>
+        </section>
       </div>
       <div id="population-controls" class="data-controls" hidden>
         <label for="population-group">Compare group</label><select id="population-group"></select>

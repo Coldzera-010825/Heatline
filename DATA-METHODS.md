@@ -102,13 +102,19 @@ grid cells. Residential Landsat uses the same polygon membership or the London
 ONS code join for Census groups. Native inputs determine the coverage in each
 area. Report an unavailable result when data does not match the selection.
 
+Use **Administrative areas** in the area controls to analyse one unit or add
+several units from the same boundary layer. They share the event, time and
+analysis settings. The comparison table shows each unit's own metrics and
+coverage. For two areas it also reports A minus B when both estimates use
+the same time. Share differences use percentage points.
+
 Pedestrian and shade comparisons assign cells by their 100 m centres and
-retain existing represented length and the eligible 20 m sun and building
-shade condition. The same-time shade comparison keeps unpaired length at
-baseline. Field review applies the group and temperature settings separately
-to the two areas, with the line overlay clipped to the first area. The panel
-reports A minus B for two valid estimates from the same time and shows the
-current map detail for A.
+retain represented length and the eligible 20 m sun and building shade
+condition. The same-time shade comparison keeps unpaired length at baseline.
+Residential, walking, shade and field-review maps show the available results
+for every selected area with a shared legend. Each map is clipped to the
+corresponding polygon. The field review also scopes street lines and location
+briefings to their selected area.
 
 Rebuild the web dataset with `node prepare-district-data.mjs <delivery-root>`.
 The delivery path contains `manifest.json` and the district geometry folders.

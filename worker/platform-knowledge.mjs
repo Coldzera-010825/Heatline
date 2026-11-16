@@ -770,7 +770,7 @@ export const knowledge = [
   {
     "id": "district-analysis",
     "title": "Administrative area selection and comparison",
-    "text": "The five city chapters can calculate one area or compare two areas from the same boundary layer with the same event, time and model settings. London uses 32 boroughs and the City of London from the December 2021 ONS boundary release. London Census Output Areas join by their ONS district code. Other city summaries use the intersection between the chosen unit and the published functional urban area.\nEuropean municipality boundaries are from GISCO LAU 2021. The Paris arrondissement layer covers the centre city. The United States has separate 2021 county, county subdivision and Census place layers. The select lists retain small boundary intersections and flag edge overlaps. Results report the fraction of the source unit inside the study area. © EuroGeographics for the administrative boundaries. Contains Ordnance Survey and ONS data © Crown copyright and database right.\nWeather uses population-weighted daily 2 m air-temperature statistics at GHS-POP centres matched to valid gridded values. The coarse grid provides regional context. Residential LST uses matched resident or Census group counts. For either metric, the weighted mean is the sum of valid values times the relevant population divided by the sum of matched weights.",
+    "text": "In the area controls, open Administrative areas and choose Single area or Compare areas. Use Add area to compare several distinct units from the same boundary layer at the same event time and model settings. London uses 32 boroughs and the City of London from the December 2021 ONS boundary release. London Census Output Areas join by their ONS district code. Other city summaries use the intersection between the chosen unit and the published functional urban area.\nEuropean municipality boundaries are from GISCO LAU 2021. The Paris arrondissement layer covers the centre city. The United States has separate 2021 county, county subdivision and Census place layers. The select lists retain small boundary intersections and flag edge overlaps. Results report the fraction of the source unit inside the study area. © EuroGeographics for the administrative boundaries. Contains Ordnance Survey and ONS data © Crown copyright and database right.\nWeather uses population-weighted daily 2 m air-temperature statistics at GHS-POP centres matched to valid gridded values. The coarse grid provides regional context. Residential LST uses matched resident or Census group counts. For either metric, the weighted mean is the sum of valid values times the relevant population divided by the sum of matched weights.",
     "keywords": [
       "administrative",
       "administrative area",
@@ -828,7 +828,7 @@ export const knowledge = [
   {
     "id": "district-analysis-2",
     "title": "Administrative area selection and comparison (part 2)",
-    "text": "Walking UTCI, shade scenarios and field-priority calculations select modelled 100 m walking cells by centre and retain their represented lengths. The available walking model and date still define coverage. Review linework is clipped to the polygon. Both areas report matched resident or modelled walking coverage where applicable. A−B subtracts the valid estimates for the same timestamp. Share differences use percentage points.\nONS local authority boundaries GISCO LAU Ville de Paris U.S. Census cartographic boundaries",
+    "text": "Walking UTCI, shade scenarios and field-priority calculations select modelled 100 m walking cells by centre and retain their represented lengths. The available walking model and date define coverage. Residential heat, walking heat, shade and field-review maps show the results for each selected area on a shared scale. The map grid and review lines are clipped to each area's own polygon. Each column reports matched residents or modelled walking coverage where applicable. For two areas, A − B subtracts valid estimates at the same timestamp. Share differences use percentage points.\nONS local authority boundaries GISCO LAU Ville de Paris U.S. Census cartographic boundaries",
     "keywords": [
       "administrative",
       "administrative area",
@@ -1415,7 +1415,7 @@ export const knowledge = [
   {
     "id": "md-administrative-boundary-inputs-and-weights",
     "title": "Administrative boundary inputs and weights",
-    "text": "The 15 November boundary delivery supplies 13 layers across eight cities.\nLondon uses the full ONS 2021 borough polygons and 33 LAD codes, including\nthe City of London. The existing Census group archive carries the matched\n2021 Output Area to borough code. Seven functional urban areas use clipped\npolygons for the chosen unit. Paris arrondissements and U.S. Census places\ncover subsets of their larger study areas. Keep levels separate. Edge overlaps\nare marked in the control and the result reports the in-study area share.\nFor a given date and weather model, assign GHS-POP 2020 centres in the polygon\nto the archived daily air grid. Estimates weight matched valid cells by\nestimated residents, and report the denominator and the number of valid coarse\ngrid cells. Residential Landsat uses the same polygon membership or the London\nONS code join for Census groups. Native inputs determine the coverage in each\narea. Report an unavailable result when data does not match the selection.\nPedestrian and shade comparisons assign cells by their 100 m centres and\nretain existing represented length and the eligible 20 m sun and building\nshade condition. The same-time shade comparison keeps unpaired length at\nbaseline. Field review applies the group and temperature settings separately\nto the two areas, with the line overlay clipped to the first area. The panel\nreports A minus B for two valid estimates from the same time and shows the\ncurrent map detail for A.\nRebuild the web dataset with node prepare-district-data.mjs <delivery-root>.",
+    "text": "The 15 November boundary delivery supplies 13 layers across eight cities.\nLondon uses the full ONS 2021 borough polygons and 33 LAD codes, including\nthe City of London. The existing Census group archive carries the matched\n2021 Output Area to borough code. Seven functional urban areas use clipped\npolygons for the chosen unit. Paris arrondissements and U.S. Census places\ncover subsets of their larger study areas. Keep levels separate. Edge overlaps\nare marked in the control and the result reports the in-study area share.\nFor a given date and weather model, assign GHS-POP 2020 centres in the polygon\nto the archived daily air grid. Estimates weight matched valid cells by\nestimated residents, and report the denominator and the number of valid coarse\ngrid cells. Residential Landsat uses the same polygon membership or the London\nONS code join for Census groups. Native inputs determine the coverage in each\narea. Report an unavailable result when data does not match the selection.\nUse Administrative areas in the area controls to analyse one unit or add\nseveral units from the same boundary layer. They share the event, time and\nanalysis settings. The comparison table shows each unit's own metrics and\ncoverage. For two areas it also reports A minus B when both estimates use\nthe same time. Share differences use percentage points.\nPedestrian and shade comparisons assign cells by their 100 m centres and\nretain represented length and the eligible 20 m sun and building shade\ncondition. The same-time shade comparison keeps unpaired length at baseline.",
     "keywords": [
       "administrative",
       "administrative area",
@@ -1476,7 +1476,7 @@ export const knowledge = [
   {
     "id": "md-administrative-boundary-inputs-and-weights-2",
     "title": "Administrative boundary inputs and weights (part 2)",
-    "text": "The delivery path contains manifest.json and the district geometry folders.\nSources are ONS,\nGISCO LAU,\nVille de Paris\nand the U.S. Census Bureau.",
+    "text": "Residential, walking, shade and field-review maps show the available results\nfor every selected area with a shared legend. Each map is clipped to the\ncorresponding polygon. The field review also scopes street lines and location\nbriefings to their selected area.\nRebuild the web dataset with node prepare-district-data.mjs <delivery-root>.\nThe delivery path contains manifest.json and the district geometry folders.\nSources are ONS,\nGISCO LAU,\nVille de Paris\nand the U.S. Census Bureau.",
     "keywords": [
       "administrative",
       "and",
@@ -1488,14 +1488,20 @@ export const knowledge = [
       "inputs",
       "population",
       "residents",
+      "shade",
+      "shading",
       "study area",
       "weights",
       "人口",
       "城市",
       "居民",
       "普查",
+      "树荫",
       "研究区",
-      "边界"
+      "边界",
+      "遮荫",
+      "遮阴",
+      "阴影"
     ]
   },
   {

@@ -105,8 +105,9 @@
       body.outerHTML + "</html>";
   }
 
-  function create({ map, context, census, active, canInspect, request, focusMap, narrate }) {
-    let analysis, location, snapshot, gridInView, inputKey, pendingLocation;
+  function create({ map, context, census, active, canInspect, request, focusMap, narrate, districtClip, districtResults }) {
+    let analysis, location, locationArea, snapshot, inputKey, pendingLocation;
+    const gridsInView = new Map();
     let layer = "baseline", showStreets = false, revision = 0, mapRequest = 0;
     const source = (name, content = L.empty) => map.getSource(name)?.setData(content);
     const draft = () => {
@@ -121,6 +122,12 @@
     };
     const input = () => ({ ...context(), focus: $("review-focus").value });
     const key = options => JSON.stringify([options.archiveCase, options.bounds ?? null, options.districts ?? null, options.shadePercent, options.focus]);
+    const areas = () => districtResults(analysis).map(({ id, name, result }) => ({ id, name, review: result.review }));
+    const selectedArea = id => {
+      const current = areas();
+      return current.find(area => area.id === id) ?? current[0];
+    };
+    const scope = (options, id) => id ? { ...options, districts: { level: options.districts.level, ids: [id] } } : options;
 
     function install() {
       const under = map.getStyle().layers.find(item => item.type === "symbol")?.id;
@@ -145,13 +152,16 @@
         const hit = hits.find(feature => feature.layer.id === "review-sampled-streets") ?? hits[0];
         if (!hit) return;
         e.preventDefault();
+        const id = hit.properties.districtId;
         if (hit.layer.id === "review-sampled-streets") {
           revision++;
+          locationArea = id;
           location = { ...hit.properties, street: true, coordinates: e.lngLat.toArray() };
           draft();
+          render();
           revealLocation();
-        } else if (hit.layer.id === "review-pin-dots") pick(hit.geometry.coordinates, true);
-        else pick(e.lngLat.toArray());
+        } else if (hit.layer.id === "review-pin-dots") pick(hit.geometry.coordinates, true, id);
+        else pick(e.lngLat.toArray(), false, id);
       });
     }
 
@@ -171,26 +181,34 @@
 
     function renderGrid() {
       if (!analysis || !active()) return;
+      const current = areas();
       const { review } = analysis;
-      const grid = gridInView ?? review.grid;
       const [, valueIndex] = modes[layer];
-      const clip = context().clip;
+      const { clip: study, bounds } = context();
       const features = [];
-      for (const row of grid.cells) {
-        const [x, y] = row;
-        const step = grid.step;
-        const w = step ? x * step[0] : null, s = step ? y * step[1] : null;
-        const ring = step ? [[w, s], [w + step[0], s], [w + step[0], s + step[1]], [w, s + step[1]], [w, s]] : row[5];
-        if (!ring) continue;
-        const value = row[valueIndex];
-        let cell = { type: "Feature", geometry: { type: "Polygon", coordinates: [ring] }, properties: {
-          value: value ?? 0, unavailable: value == null, carried: layer === "scenario" && !row[6],
-        } };
-        if (context().bounds) cell = L.clip(cell, review.bounds);
-        if (cell && step && clip) {
-          cell = clip.clip(cell, [w, s, w + step[0], s + step[1]]);
+      const scales = new Set();
+      for (const area of current) {
+        const grid = gridsInView.get(area.id) ?? area.review.grid;
+        const mask = area.id ? districtClip(area.id) : study;
+        if (area.id && !mask) continue;
+        scales.add(grid.metres);
+        for (const row of grid.cells) {
+          const [x, y] = row;
+          const step = grid.step;
+          const w = step ? x * step[0] : null, s = step ? y * step[1] : null;
+          const ring = step ? [[w, s], [w + step[0], s], [w + step[0], s + step[1]], [w, s + step[1]], [w, s]] : row[5];
+          if (!ring) continue;
+          const value = row[valueIndex];
+          let cell = { type: "Feature", geometry: { type: "Polygon", coordinates: [ring] }, properties: {
+            value: value ?? 0, unavailable: value == null, carried: layer === "scenario" && !row[6], districtId: area.id,
+          } };
+          if (bounds) cell = L.clip(cell, area.review.bounds);
+          if (cell && mask && (step || area.id)) {
+            const xs = ring.map(point => point[0]), ys = ring.map(point => point[1]);
+            cell = mask.clip(cell, [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
+          }
+          if (cell) features.push(cell);
         }
-        if (cell) features.push(cell);
       }
       source("review-grid", L.collection(features));
       const colors = layer === "priority" ? ["interpolate", ["linear"], ["get", "value"], ...priorityColors.flat()] :
@@ -203,21 +221,25 @@
       $("review-map-ramp").dataset.mode = layer;
       const [min, max] = L.layers.utci.range;
       const range = layer === "priority" ? "0 to ≥" + priorityTop + " points" : layer === "reduction" ? "≤−2 to ≥3°C" : `≤${min} to ≥${max}°C`;
-      const resolution = grid.metres === 500 ? layer === "priority" ? "500 m overview · peak 100 m score" : "500 m overview" : "100 m walking cells";
+      const resolution = scales.size > 1 ? "100 m cells · 500 m overview where needed" :
+        scales.has(500) ? layer === "priority" ? "500 m overview · peak 100 m score" : "500 m overview" : "100 m walking cells";
       $("review-map-caption").textContent = `${range} · ${resolution} · ${utc(review.timeUtc)}`;
       const coverage = { scenario: "Dim cells carry forward baseline UTCI. Brighter cells contain valid shade pairs.",
         reduction: "Gray marks cells without a valid shade pair.", priority: "Census residence weights · gray marks no census match." };
       $("review-map-coverage").textContent = coverage[layer] ?? "";
       $("review-map-coverage").hidden = !coverage[layer];
+      const hasCensus = current.some(area => area.review.censusShare);
+      const hasPairs = current.some(area => area.review.pairedCells);
+      const hasStreets = current.some(area => area.review.streets);
       for (const button of document.querySelectorAll("[data-review-layer]")) {
         button.setAttribute("aria-pressed", String(button.dataset.reviewLayer === layer));
         const mode = button.dataset.reviewLayer;
-        button.hidden = mode === "priority" && !review.censusShare;
-        button.disabled = mode === "priority" ? !review.censusShare : mode !== "baseline" && !review.pairedCells;
+        button.hidden = mode === "priority" && !hasCensus;
+        button.disabled = mode === "priority" ? !hasCensus : mode !== "baseline" && !hasPairs;
       }
       $("review-street-toggle").setAttribute("aria-pressed", String(showStreets));
-      $("review-street-toggle").disabled = !review.streets;
-      $("review-street-toggle").title = review.streets ? "Sun, building shade, canopy shade and partial shade" : "Timestamp-matched street geometry needed for this case";
+      $("review-street-toggle").disabled = !hasStreets;
+      $("review-street-toggle").title = hasStreets ? "Sun, building shade, canopy shade and partial shade" : "Timestamp-matched street geometry needed for this case";
     }
 
     function paint() {
@@ -228,7 +250,8 @@
         return;
       }
       renderGrid();
-      source("review-pins", L.collection(analysis.review.candidates.map((item, index) => point(item.coordinates, { rank: String(index + 1) }))));
+      source("review-pins", L.collection(areas().flatMap(({ id, review }) => review.candidates
+        .map((item, index) => point(item.coordinates, { rank: String(index + 1), districtId: id })))));
       renderLocation();
     }
 
@@ -238,19 +261,27 @@
       summary.replaceChildren();
       candidates.replaceChildren();
       if (analysis) {
-        const result = analysis.review;
-        summary.append(R.element("h2", "Selected walking network"), measures(summaryRows(result)));
+        const current = areas();
+        const selected = selectedArea(locationArea);
+        const result = selected.review;
+        summary.append(R.element("h2", current.length > 1 ? "Walking network · " + selected.name : "Selected walking network"), measures(summaryRows(result)));
         summary.append(R.element("p", "A shade comparison needs at least 20 m each of sunlit and building-shaded routes in the same 100 m cell. Other cells carry forward their baseline UTCI.", "data-note"));
         if (!result.streets) summary.append(R.element("p", "Street linework requires a shade split for this model time. Grid review is available.", "data-note"));
-        if (result.census && !result.candidates.length) candidates.append(R.element("p", result.censusShare
-          ? "No census-matched cell reaches a positive field priority score in this area."
-          : "No walking cells match this census group in the selected area.", "data-note"));
-        if (result.candidates.length) {
+        for (const area of current) {
+          const report = area.review;
+          const title = report.census ? "Field priorities · " + report.group : "Hot sunlit cells";
+          if (!report.candidates.length && !report.census) continue;
+          candidates.append(R.element("h3", current.length > 1 ? area.name + " · " + title : title));
+          if (!report.candidates.length) {
+            candidates.append(R.element("p", report.censusShare ? "No census-matched cell reaches a positive field priority score in this area."
+              : "No walking cells match this census group in the selected area.", "data-note"));
+            continue;
+          }
           const list = R.element("div", null, "review-candidate-list");
-          list.append(...result.candidates.map((item, i) => R.button(item.priority
+          list.append(...report.candidates.map((item, i) => R.button(item.priority
             ? `${i + 1} · ${num(item.priority.score, 2)} points · ${pct(item.priority.share)} resident share · ${temp(item.baseline)}`
-            : `${i + 1} · ${temp(item.baseline)} · ${metres(item.sunM)} sunlit`, () => pick(item.coordinates, true))));
-          candidates.append(R.element("h3", result.census ? "Field priorities · " + result.group : "Hot sunlit cells"), list);
+            : `${i + 1} · ${temp(item.baseline)} · ${metres(item.sunM)} sunlit`, () => pick(item.coordinates, true, area.id))));
+          candidates.append(list);
         }
       }
       paint();
@@ -260,39 +291,53 @@
       if (!analysis || !active()) return;
       const current = ++mapRequest;
       const b = map.getBounds().toArray().flat();
-      const result = analysis.review;
-      const viewBounds = intersect(result.bounds, b);
-      const detail = intersects(result.bounds, b) && viewBounds[2] - viewBounds[0] <= .065 && viewBounds[3] - viewBounds[1] <= .048;
-      gridInView = undefined;
+      const targets = areas().flatMap(({ id, review }) => {
+        if (!intersects(review.bounds, b)) return [];
+        const bounds = intersect(review.bounds, b);
+        return bounds[2] - bounds[0] <= .065 && bounds[3] - bounds[1] <= .048 ? [{ id, review, bounds }] : [];
+      });
+      gridsInView.clear();
       source("review-street-segments");
-      mapStatus(showStreets ? detail ? "Loading the modelled shade on walking routes…" : "Zoom in to inspect street shade." : "");
+      mapStatus(showStreets ? targets.length ? "Loading the modelled shade on walking routes…" : "Zoom in to inspect street shade." : "");
       const base = input();
-      const checks = [detail && result.grid.metres === 500 ? request({ ...base, kind: "review", bounds: viewBounds }) : null,
-        detail && showStreets ? request({ ...base, kind: "review-streets", viewport: b }) : null];
-      const [detailed, streets] = await Promise.allSettled(checks);
-      if (current !== mapRequest || !active() || analysis?.review !== result) return;
-      if (detailed.value?.ok) gridInView = detailed.value.review.grid;
+      const [details, streets] = await Promise.all([
+        Promise.allSettled(targets.filter(target => target.review.grid.metres === 500).map(async ({ id, bounds }) =>
+          [id, await request({ ...scope(base, id), kind: "review", bounds })])),
+        Promise.allSettled(showStreets ? targets.map(async ({ id }) =>
+          [id, await request({ ...scope(base, id), kind: "review-streets", viewport: b })]) : []),
+      ]);
+      if (current !== mapRequest || !active()) return;
+      for (const entry of details) if (entry.value?.[1].ok) gridsInView.set(entry.value[0], entry.value[1].review.grid);
       renderGrid();
-      if (streets.value?.ok) {
-        source("review-street-segments", streets.value.streets);
-        mapStatus(streets.value.streets.features.length ? "Amber sun · blue building shade · green canopy · violet partial shade" : "No modelled streets in this view.");
-      } else if (streets.value) mapStatus(streets.value.reply);
-      else if (streets.status === "rejected") mapStatus("Street shade could not load. Move the map to retry.");
+      if (!streets.length) return;
+      const features = streets.flatMap(entry => {
+        const [id, data] = entry.value ?? [];
+        return data?.ok ? data.streets.features.map(feature => id ? {
+          ...feature, id: id + ":" + feature.id, properties: { ...feature.properties, districtId: id },
+        } : feature) : [];
+      });
+      source("review-street-segments", L.collection(features));
+      if (features.length) mapStatus("Amber sun · blue building shade · green canopy · violet partial shade");
+      else if (streets.every(entry => entry.value?.[1].ok)) mapStatus("No modelled streets in this view.");
+      else mapStatus(streets.find(entry => entry.value?.[1].reply)?.value[1].reply ?? "Street shade could not load. Move the map to retry.");
     }
 
-    async function pick(coordinates, move) {
+    async function pick(coordinates, move, id) {
       if (!analysis || !canInspect()) return;
       const check = ++revision;
-      const match = analysis.review.candidates.find(item => item.id === coordinates.join(","));
+      const area = selectedArea(id);
+      const match = area.review.candidates.find(item => item.id === coordinates.join(","));
       draft();
       status("Reading the evidence at this location…");
-      const load = match ? Promise.resolve({ ok: true, cell: match }) : request({ ...input(), kind: "review", point: coordinates });
+      const load = match ? Promise.resolve({ ok: true, cell: match }) : request({ ...scope(input(), area.id), kind: "review", point: coordinates });
       pendingLocation = load;
       try {
         const data = await load;
         if (check !== revision || !active()) return;
         if (!data.ok) { status(data.reply); return; }
+        locationArea = area.id;
         location = data.cell;
+        render();
         revealLocation();
         if (move) focusMap(location.coordinates);
       } catch {
@@ -314,15 +359,19 @@
         if (!data.ok) { status(data.reply); return { ok: false, text: data.reply }; }
         analysis = data;
         inputKey = stamp;
-        gridInView = undefined;
-        if (!data.review.pairedCells) layer = "baseline";
-        if (data.review.censusShare) layer = "priority";
-        showStreets = showStreets && Boolean(data.review.streets);
-        if (!location) location = data.review.candidates[0];
+        gridsInView.clear();
+        const current = areas();
+        if (!current.some(area => area.review.pairedCells)) layer = "baseline";
+        if (current.some(area => area.review.censusShare)) layer = "priority";
+        showStreets = showStreets && current.some(area => area.review.streets);
+        if (!location) {
+          locationArea = current[0].id;
+          location = current[0].review.candidates[0];
+        }
         render();
         void viewport();
       }
-      const result = analysis.review;
+      const result = selectedArea(locationArea).review;
       const evidence = evidenceText(result, location);
       progress("Preparing the evidence and field checks…");
       const summary = await narrate(question, { reply: evidence, timeUtc: result.timeUtc, region: result.region,
@@ -340,7 +389,8 @@
     function reset(message = "") {
       revision++;
       mapRequest++;
-      analysis = location = inputKey = gridInView = pendingLocation = undefined;
+      analysis = location = locationArea = inputKey = pendingLocation = undefined;
+      gridsInView.clear();
       layer = "baseline";
       showStreets = false;
       draft();
