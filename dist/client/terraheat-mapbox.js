@@ -2556,7 +2556,7 @@
       syncPopulationOptions();
       Object.assign(request, { group: $("population-group").value, reference: $("population-reference").value,
         borough: options.borough, rank: options.rank, rankOrder: options.rankOrder, scopeNote: options.scopeNote });
-      if (request.borough || request.rank) request.bounds = undefined;
+      if (request.borough) request.bounds = undefined;
     }
     if (kind === "station") focusStations(request.station, request.comparison);
     if (chatTurn) addToolCall(chatTurn, kind, request);
@@ -2666,19 +2666,23 @@
     finishToolCall(turn, result.ok);
   }
 
+  // A question that targets another chapter's analysis should leave Review & advise.
+  const crossChapterAnalysis = text => /\b(?:walking heat|pedestrian heat|heat stress|thermal stress|utci|street[- ]level|calculate|compute|analys\w*|population|residents?|boroughs?|districts?|\blad\b|imd|deprivation|aged 65|elderly|landsat|lst|surface temperature|shade scenario|what if|wow\b|station|compare cities)\b|步行热|热应激|行人热|人口|居民|行政区|哪个区|老年|遮荫|情景/i.test(text) &&
+    !/(?:review|field|on[ -]site|verify|briefing|report|export|check|现场|核实|检查|简报|报告|审阅)/i.test(text);
+
   function submit(text) {
     if (!ready || busy || drawing || caseLoading) return;
     appendTurn("user", text);
     const chatTurn = appendTurn("atlas");
     chatTurn.question = text;
     return withBusy(async () => {
-      if (reviewing() && !(await import("./atlas-question.js")).isPlatformQuestion(text)) {
+      if (reviewing() && !(await import("./atlas-question.js")).isPlatformQuestion(text) && !crossChapterAnalysis(text)) {
         if (/\b(forecast|tomorrow|current weather|deaths?|health outcomes?)\b|预报|明天|死亡|健康风险/i.test(text)) {
           return writeReply(chatTurn, "Review & advise works with the selected historical walking model, its shade evidence and field checks.");
         }
         if (/\b(report|briefing|export)\b|报告|简报|导出/i.test(text)) {
-          return writeReply(chatTurn, review.openReport() ? "Opened the briefing for this completed analysis." :
-            "Run AI Analyze to prepare a briefing for the current selection.");
+          if (review.openReport()) return writeReply(chatTurn, "Opened the briefing for this completed analysis.");
+          return performReview(text, chatTurn);
         }
         const checks = review.checks();
         if (checks && /field|on[ -]site|verify|现场|核实/i.test(text)) return writeReply(chatTurn, checks);
@@ -2737,6 +2741,13 @@
         const opened = await chooseCase(action.region, action.event, index);
         return writeReply(chatTurn, opened ? "Opening the " + (adminCatalog?.cities[action.region]?.name ?? "London") + " case." :
           "That city or event could not open. Check the case menu for available events.");
+      }
+      if (action?.type === "run-review") {
+        if (archiveState || caseRegion !== "London") {
+          if (!(await chooseCase("London", detailedEvent))) return writeReply(chatTurn, "The detailed London case could not load.");
+        }
+        await openChapter(reviewStage);
+        return performReview(text, chatTurn);
       }
       if (action?.type === "compare-events") {
         const reply = await openChapter(4, true, action);

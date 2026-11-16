@@ -50,7 +50,7 @@ async function analyzePopulation({ bounds, group = "older", reference = "all", b
       !["asc", "desc"].includes(rankOrder)) {
     return problem("clarify", "Choose a London district or rank all London districts.");
   }
-  if ((rank || borough) && bounds) return problem("clarify", "Choose a district scope or a drawn area.");
+  if (borough && bounds) return problem("clarify", "Choose a district scope or a drawn area.");
   progress("Loading 2021 Census areas and matched Landsat values…");
   const records = await readEvent("population-groups.json");
   progress(rank ? "Calculating resident-weighted LST by district…" : "Weighting surface temperatures for each resident group…");
@@ -103,7 +103,7 @@ async function analyzePopulation({ bounds, group = "older", reference = "all", b
   if (ranked?.length) {
     const first = ranked[0];
     reply = first.name + " had the " + (rankOrder === "desc" ? "highest" : "lowest") + " matched mean residential surface temperature for " + groupText(a.label) +
-      ": " + first.mean.toFixed(2) + "°C (" + format(first.matched) + " matched residents). " +
+      " in " + place + ": " + first.mean.toFixed(2) + "°C (" + format(first.matched) + " matched residents). " +
       "The ranking uses the " + eventDate + " Landsat surface-temperature snapshot.";
   } else if (ranked) {
     reply = "No London districts have matched records for this group.";
