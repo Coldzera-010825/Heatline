@@ -6,7 +6,7 @@ import { answerPlatformQuestion, scopeGuidance } from "./platform-answer.mjs";
 import { isPlatformQuestion } from "../dist/client/atlas-question.js";
 
 const layers = ["era5", "lst", "wow", "ndvi", "ndwi", "elevation", "landcover", "utci"];
-const actions = ["exposure", "station", "population", "shade", "risk", "navigate", "globe", "layer", "day", "view", "method", "regional", "explain", "unsupported", "clarify"];
+const actions = ["exposure", "station", "population", "shade", "risk", "review", "navigate", "open-case", "globe", "layer", "day", "view", "method", "regional", "explain", "unsupported", "clarify"];
 const scopes = ["selected", "london"];
 const eventIds = ["E1_2019-07", "E2_2020-08", "G1_2021-06", "E3_2022-07", "E4_2025-06", "E5_2026-06"];
 const regions = {
@@ -17,12 +17,12 @@ const regions = {
 const availability = "Open one of the eight archived city cases. Compare cities uses population-weighted Landsat surface temperature. Pedestrian UTCI is available for 2022 where there is modelled walking-network coverage.";
 const instructions = [
   "Use heatline_action to route one action. Supported analyses are London pedestrian UTCI, WOW station weather, Census residential LST, and a paired shade scenario.",
-  "Use layer to show era5, lst, wow, ndvi, ndwi, elevation, landcover, or utci. Use view to switch the active grid between flat and bars. Navigate opens London, globe opens global ERA5-Land.",
+  "Use layer to show era5, lst, wow, ndvi, ndwi, elevation, landcover, or utci. Use view to switch the active grid between flat and bars. Navigate opens London, open-case opens another archived city case with its region (add the year when the user names one), globe opens global ERA5-Land.",
   "Day is a UTC day from 13 through 19 July 2022 for ERA5-Land or WOW. The LST, population, UTCI and shade results are a single 18 July snapshot.",
   "Exposure requires the existing map selection or an explicit request for the London study area. Never infer a named district polygon. Station requires the selected WOW station. Use compare true if the user requests a second station.",
-  "Shade accepts an optional percentage of sunlit route length. Population compares all, older (65+), limited (day-to-day activities limited), deprived (IMD 1–2), and leastDeprived (IMD 9–10). For district results supply its LAD code; set rank true only for rankings across districts.",
+  "Shade accepts an optional percentage of sunlit route length. Population compares all, older (65+), limited (day-to-day activities limited), deprived (IMD 1–2), and leastDeprived (IMD 9–10). For a single district supply its LAD code. Set rank true when the user asks which district is highest or lowest: use scope london for a full London ranking, scope selected to rank districts inside the drawn area.",
   "Regional compares residential Landsat surface heat within one archived event or same-time street pilot UTCI in July 2022. ERA5 is regional context. Use individual city cases for shade or subgroup analyses.",
-  "Use risk for clinical risk requests, unsupported for forecasts, unavailable metrics or locations, rainfall or routing, and clarify for ambiguity.",
+  "Use risk for clinical risk requests, review to open the field-check step for a completed London analysis, unsupported for forecasts, unavailable metrics or locations, rainfall or routing, and clarify for ambiguity.",
   "Use explain for questions about the platform itself: data sources, study areas, formulas, or what a term such as LST, NDVI, UTCI or shade fraction means. explain answers in text and never changes the map. Use unsupported for topics unrelated to the atlas and say briefly that Atlas only covers Heatline questions.",
 ].join(" ");
 
@@ -116,12 +116,14 @@ function localIntent(message, context) {
       !/\b(?:lst|landsat|wow|station|ndvi|ndwi|utci|land cover|layer|analysis)\b|地表温度|图层/.test(query)) {
     return { action: "navigate" };
   }
-  const selected = /\b(?:here|this area|this region|selected area|highlighted area|current area|selection|drawn area|selected rectangle)\b|选区|框选|这里|这个区域/.test(query);
+  const selected = /\b(?:here|this area|this region|selected area|highlighted area|current area|selection|drawn area|selected rectangle)\b|选区|框选|这里|这个区域|这个范围|范围内/.test(query);
   const districtIds = knownDistricts(query);
   const districtQuery = /\b(?:boroughs?|districts?|lad)\b|行政区|哪个区|各区/.test(query);
   const cooling = /\b(?:cool(?:ing)? (?:cent(?:re|er)s?|spaces?|shelters?)|where.*(?:install|build|place|locate).*(?:cool|shade))\b|避暑点|降温点/.test(query);
   const clinical = /\b(?:health risks?|deaths?|hospitali[sz]ations?|mortality|(?:heat|high[- ]temperature) risks?)\b|健康风险|死亡|高温风险|热风险/.test(query);
   if (clinical && !/\b(?:utci|walking heat|street)\b|行人|街道/.test(query)) return { action: "risk", strict: true };
+  const reviewRequest = /\b(?:review|field (?:check|visit)|on[ -]?site|site (?:visit|inspection)|priority (?:streets?|areas?|routes?)|inspection)\b|现场核查|实地核查|核查|优先级|补遮荫|应优先/.test(query);
+  if (reviewRequest) return { action: "review", strict: true };
   const namedGroups = groupPatterns.flatMap(([group, pattern]) => {
     const match = query.match(pattern);
     return match ? [[group, match.index]] : [];
@@ -281,12 +283,13 @@ function executeIntent(intent, body, progress, analyze) {
           group, reference, borough, rank, rankOrder, scopeNote });
       }
       return analyze({
-        kind: action, bounds: scope === "london" || rank || borough ? null : bounds, day, station,
+        kind: action, bounds: scope === "london" || borough ? null : bounds, day, station,
         group, reference, borough, rank, rankOrder, scopeNote,
         comparison: compare ? comparison : undefined, shadePercent: shadePercent ?? body.shadePercent ?? 25,
       }, progress);
     }
     case "risk": return analyze({ metric: "risk" }, progress);
+    case "review": return ready("Opening the Review & advise step.", { type: "run-review" });
     case "navigate": return ready("Opening the London case.", { type: "navigate" });
     case "open-case": return ready("Opening the selected city case.", { type: "open-case", region: intent.region, event: intent.event });
     case "regional": return ready("Opening the city heat exposure comparison.", {
@@ -364,6 +367,11 @@ async function chat(body, progress, env, analyze) {
   if (!intent || incomplete) {
     if (!key) progress("Matching the question to an Atlas tool…");
     intent = fallback;
+  }
+  // A drawn selection turns a borough ranking into a ranking inside the selection.
+  if (intent.action === "population" && intent.rank && bounds && !intent.borough &&
+      !/\b(?:all|full|entire|citywide|greater london|across london|整个|全部|全伦敦|所有|全域)\b/i.test(message)) {
+    intent.scope = "selected";
   }
   // Platform questions answer in text and never touch the map.
   if (intent.action === "explain") {
