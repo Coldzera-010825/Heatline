@@ -238,6 +238,8 @@ for (const [city, events] of Object.entries(admin.streetModels)) for (const [eve
   assert.equal(zero.event.before, zero.event.after);
   const scenario = await api({ archiveCase: caseKey, kind: "shade", coverage: "pilot", shadePercent: 25 });
   assert.equal(scenario.event.pairedCells, inside.pairs.length);
+  assert(zero.event.features.features.every(({ properties: p }) => p.reduction === 0));
+  for (const { properties: p } of scenario.event.features.features) close(p.reduction, p.baseline - p.scenario, .011);
   const change = inside.pairs.reduce((n, r) => n + .25 * r[3] * (r[6] - r[7]), 0);
   close(scenario.event.reduction, change / inside.pairs.reduce((n, r) => n + r[2], 0), .006);
   const chat = await api({ archiveCase: caseKey, message: "What if 50% of paths were shaded?", dispatch: true }, "chat");
@@ -309,6 +311,10 @@ for (const kind of ["exposure", "shade"]) {
   assert.match(map.mapResolution, /^500 m/);
   assert(map.mapStep.every(Number.isFinite));
   assert(map.mapRows.length > 1000 && map.mapRows.every(row => Number.isInteger(row[0]) && Number.isInteger(row[1])));
+  if (kind === "shade") {
+    assert(map.mapRows.some(row => row[6] > 0));
+    for (const [, , , , baseline, after, reduction] of map.mapRows) close(reduction, baseline - after, .011);
+  }
   assert.equal(result.analysis?.cellCount ?? result.event?.pairedCells, kind === "shade" ? 8696 : 129280);
 }
 assert.equal((await api({ archiveCase: archiveCase("Lille"), kind: "exposure", coverage: "city" })).status, "unavailable");

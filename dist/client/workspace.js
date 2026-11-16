@@ -1,8 +1,12 @@
 import { fileLimitMiB, groupFields, models, roles, sampleFields } from "./workspace-contract.js";
 import { isPlatformQuestion } from "./atlas-question.js";
+import { openGuestWorkspace } from "./workspace-guest.js";
 
 const $ = id => document.getElementById(id);
 const apiRoot = "/api/workspace";
+const guestMode = new URLSearchParams(location.search).get("guest") === "1";
+let guestFetch;
+const workspaceFetch = (path, init) => guestMode ? (guestFetch ??= openGuestWorkspace())(path, init) : fetch(apiRoot + path, init);
 const state = { study: null, files: [], runs: [], picks: {}, model: "resident", selected: "", run: null, busy: false, bounds: null };
 const empty = { type: "FeatureCollection", features: [] };
 const terrainColors = ["#513982", "#9f4e82", "#d96961", "#f4a266", "#fff0a6"];
@@ -24,7 +28,7 @@ function node(tag, text, className) {
 }
 
 async function api(path, method = "GET", body) {
-  const response = await fetch(apiRoot + path, { method, ...(body !== undefined && {
+  const response = await workspaceFetch(path, { method, ...(body !== undefined && {
     headers: { "Content-Type": typeof body === "object" && !(body instanceof File) ? "application/json" : "application/octet-stream" },
     body: body instanceof File ? body : JSON.stringify(body),
   }) });
@@ -40,6 +44,30 @@ async function api(path, method = "GET", body) {
 function status(id, text = "", error = false) {
   $(id).textContent = text;
   $(id).dataset.error = String(error);
+}
+
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = node("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function bindExport(id, path) {
+  const link = $(id);
+  link.href = guestMode ? "#" : apiRoot + path;
+  if (!guestMode) return;
+  link.onclick = async event => {
+    event.preventDefault();
+    try {
+      const response = await workspaceFetch(path);
+      if (!response.ok) throw new Error((await response.json()).error);
+      const filename = response.headers.get("Content-Disposition")?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+      downloadBlob(await response.blob(), filename ? decodeURIComponent(filename) : "heatline-export");
+    } catch (err) { status("run-status", err.message, true); }
+  };
 }
 
 function busy(value) {
@@ -140,7 +168,8 @@ function renderStudy() {
   $("study-name").textContent = state.study?.name ?? "Create a study";
   const f = boundaryFile();
   $("study-description").textContent = state.study ?
-    [time(state.study.eventTime), f?.gridCrs ?? "Boundary needed", "Expires " + new Date(state.study.expiresAt).toLocaleDateString("en-GB")].join(" · ") :
+    [time(state.study.eventTime), f?.gridCrs ?? "Boundary needed",
+      guestMode ? "This tab" : "Expires " + new Date(state.study.expiresAt).toLocaleDateString("en-GB")].join(" · ") :
     "Set a boundary and an event time to begin.";
   $("delete-study").hidden = !state.study;
   $("fit-study").disabled = !f;
@@ -163,9 +192,9 @@ function renderStudy() {
   const selected = state.files.find(item => item.id === state.selected);
   $("file-actions").hidden = !selected;
   if (selected) {
-    const url = apiRoot + studyPath() + "/files/" + selected.id + "/export";
-    $("export-original").href = url;
-    $("export-normalized").href = url + "?format=normalized";
+    const path = studyPath() + "/files/" + selected.id + "/export";
+    bindExport("export-original", path);
+    bindExport("export-normalized", path + "?format=normalized");
   }
   renderAnalysis();
 }
@@ -343,7 +372,7 @@ function renderResults() {
   }));
   $("result-method").textContent = run.basis;
   for (const [id, format] of [["result-csv", "csv"], ["result-map", "geojson"], ["result-zip", "zip"]]) {
-    $(id).href = apiRoot + studyPath() + "/runs/" + run.id + "/export?format=" + format;
+    bindExport(id, studyPath() + "/runs/" + run.id + "/export?format=" + format);
   }
   const candidate = $("priority-locations");
   candidate.hidden = !run.candidates?.length;
@@ -475,6 +504,12 @@ async function explain(question) {
 }
 
 async function explainMethod(message) {
+  if (guestMode) {
+    const info = await api("/methods", "POST", { message });
+    $("atlas-mode").textContent = "Methods";
+    atlasTurn(info.reply);
+    return;
+  }
   const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message }) });
   if (!response.ok) throw new Error("The methods answer is unavailable.");
@@ -503,7 +538,7 @@ async function runAnalysis(question) {
   busy(true);
   status("run-status", "Opening the analysis request…");
   try {
-    const response = await fetch(apiRoot + studyPath() + "/runs", {
+    const response = await workspaceFetch(studyPath() + "/runs", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
     if (!response.ok) throw new Error((await response.json()).error);
@@ -522,7 +557,7 @@ async function runAnalysis(question) {
         if (item.type === "result") result = item.run;
       }
     }
-    if (!result) throw new Error("The analysis stopped before a result was saved.");
+    if (!result) throw new Error("The analysis stopped before producing a result.");
     state.runs.unshift(result);
     await showRun(result);
     status("run-status", "Run complete. Results are ready to export.");
@@ -540,7 +575,7 @@ $("study-form").onsubmit = async event => {
   event.preventDefault();
   const submit = event.target.querySelector('[type="submit"]');
   submit.disabled = true;
-  status("study-form-status", "Creating private study…");
+  status("study-form-status", guestMode ? "Creating study in this tab…" : "Creating private study…");
   try {
     const { study } = await api("/studies", "POST", { name: $("new-name").value, eventTime: $("new-event").value + "Z",
       city: $("new-city").value, gridCrs: $("new-crs").value });
@@ -570,12 +605,7 @@ $("download-template").onclick = () => {
   const schema = role === "samples" ? sampleFields : groupFields;
   const sample = role === "samples" ? ["s-001", "-0.1275", "51.5090", state.study.eventTime, 5, 57, 34, 42, 2, "sunlit", "seg-01"]
     : ["area-01", "older", "Residents aged 65+", 40, 200];
-  const url = URL.createObjectURL(new Blob([schema.join(",") + "\n" + sample.join(",") + "\n"], { type: "text/csv" }));
-  const a = node("a");
-  a.href = url;
-  a.download = "heatline-" + role + "-template.csv";
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  downloadBlob(new Blob([schema.join(",") + "\n" + sample.join(",") + "\n"], { type: "text/csv" }), "heatline-" + role + "-template.csv");
 };
 $("import-form").onsubmit = async event => {
   event.preventDefault();
@@ -589,7 +619,8 @@ $("import-form").onsubmit = async event => {
     if (value) params.set(key, key === "time" ? value + "Z" : value);
   }
   $("validate-file").disabled = true;
-  status("import-status", "Uploading, checking coordinates and validating your file…");
+  status("import-status", guestMode ? "Checking coordinates and validating your file in this tab…" :
+    "Uploading, checking coordinates and validating your file…");
   try {
     const { file: saved } = await api(studyPath() + "/files?" + params, "POST", file);
     state.files = state.files.concat(saved);
@@ -632,10 +663,18 @@ $("atlas-form").onsubmit = async event => {
   } catch (err) { atlasTurn(err.message); }
 };
 
+if (guestMode) {
+  $("guest-notice").hidden = false;
+  $("studies-label").textContent = "Guest studies";
+  $("workspace-mode-link").textContent = "Private workspace";
+  $("workspace-mode-link").href = "workspace.html";
+  $("workspace-mode-link").hidden = false;
+}
 try {
   const access = await api("");
   $("workspace-gate").hidden = true;
   $("workspace-shell").hidden = false;
+  $("workspace-mode-link").hidden = false;
   mapInit();
   $("studies").replaceChildren(option("Select a study", ""), ...access.studies.map(s => option(s.name, s.id)));
   $("new-city").replaceChildren(option("Upload my own boundary", ""), ...access.cities.map(city => option(city.name, city.id)));
@@ -646,5 +685,6 @@ try {
   $("workspace-shell").hidden = true;
   $("workspace-gate").hidden = false;
   status("gate-message", err.message, err.status !== 401);
-  $("workspace-sign-in").hidden = err.status !== 401;
+  $("workspace-sign-in").hidden = guestMode || err.status !== 401;
+  $("workspace-guest").hidden = $("guest-description").hidden = guestMode;
 }

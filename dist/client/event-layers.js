@@ -28,6 +28,9 @@
     poverty: { label: "Residents below the poverty threshold", source: "U.S. Census Bureau ACS", range: [0, 35], colors: share, unit: "%" },
     baseline: { label: "Baseline UTCI", source: "Paired pilot · SOLWEIG + UTCI · 18 Jul 2022 · 10:52 UTC", range: [28, 42], colors: heat, unit: "°C" },
     scenario: { label: "Shade scenario UTCI", source: "Paired pilot · length-weighted estimate · 18 Jul 2022 · 10:52 UTC", range: [28, 42], colors: heat, unit: "°C" },
+    reduction: { label: "UTCI reduction from shade", source: "SOLWEIG · length-weighted UTCI", range: [-1, 3],
+      stops: [-1, 0, .55, .95, 1.35, 1.9, 3],
+      colors: ["#b55b51", "#52535d", "#364f64", "#398590", "#6ed7ad", "#d1f7a8", "#fffcc5"], unit: "°C" },
   };
   const empty = { type: "FeatureCollection", features: [] };
   const cache = new Map();
@@ -48,6 +51,7 @@
     leastDeprived: "English Indices of Deprivation 2025 · ONS Census 2021",
     baseline: "SOLWEIG · Environment Agency LiDAR · © OpenStreetMap contributors",
     scenario: "SOLWEIG · Environment Agency LiDAR · © OpenStreetMap contributors",
+    reduction: "SOLWEIG · Environment Agency LiDAR · © OpenStreetMap contributors",
   };
 
   function data(file) {
@@ -198,14 +202,17 @@
     }));
   }
 
-  function color(layer) {
-    const config = layers[layer];
-    if (config.classes) return ["match", ["get", "value"], ...config.classes.flatMap(([code, , c]) => [code, c]), "#867f72"];
+  function ramp(config) {
     const [min, max] = config.range;
-    return ["interpolate", ["linear"], ["get", "value"],
-      ...config.colors.flatMap((c, i) => [min + (max - min) * i / (config.colors.length - 1), c])];
+    return config.colors.map((c, i) => [config.stops?.[i] ?? min + (max - min) * i / (config.colors.length - 1), c]);
+  }
+
+  function color(layer, value = ["get", "value"]) {
+    const config = layers[layer];
+    if (config.classes) return ["match", value, ...config.classes.flatMap(([code, , c]) => [code, c]), "#867f72"];
+    return ["interpolate", ["linear"], value, ...ramp(config).flat()];
   }
 
   window.HEATLINE_LAYERS = { layers, attr, londonLayers, empty, data, collection, globalGrid, londonGrid, populationGrid,
-    residentialResultGrid, regionalData, regionalGrid, clip, barCutoff, columns, color };
+    residentialResultGrid, regionalData, regionalGrid, clip, barCutoff, columns, color, ramp };
 })();

@@ -163,8 +163,10 @@ async function analyzeShade({ bounds, shadePercent, timeUtc = snapshot, place = 
   const compactOverview = compact && overview;
   const mapRows = compactOverview ? [] : undefined;
   for (const { w, s, length, changed, base, scenario } of grid.values()) {
-    const properties = { path_m: round(length, 1), converted_m: round(changed, 1), baseline: round(base / length), scenario: round(scenario / length), meters: 500 };
-    if (compactOverview) mapRows.push([Math.round(w / dx), Math.round(s / dy), properties.path_m, properties.converted_m, properties.baseline, properties.scenario]);
+    const properties = { path_m: round(length, 1), converted_m: round(changed, 1), baseline: round(base / length),
+      scenario: round(scenario / length), reduction: round((base - scenario) / length), meters: 500 };
+    if (compactOverview) mapRows.push([Math.round(w / dx), Math.round(s / dy), properties.path_m,
+      properties.converted_m, properties.baseline, properties.scenario, properties.reduction]);
     else features.push({ type: "Feature", geometry: { type: "Polygon", coordinates: [[[w, s], [w + dx, s], [w + dx, s + dy], [w, s + dy], [w, s]]] }, properties });
   }
   const before = round(baseline / total);

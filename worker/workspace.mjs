@@ -98,8 +98,8 @@ export async function pruneResearch(bucket) {
   }
 }
 
-async function catalog(env, url) {
-  const res = await env.ASSETS.fetch(new Request(new URL("/data/admin/catalog.json", url)));
+async function catalog(assets, url) {
+  const res = await assets.fetch(new Request(new URL("/data/admin/catalog.json", url)));
   return res.json();
 }
 
@@ -157,7 +157,7 @@ async function saveInput(bucket, path, study, meta, bytes, boundary, installing 
 
 function publicFile({ assets, ...file }) { return file; }
 
-async function createStudy(bucket, owner, request, env, url) {
+async function createStudy(bucket, owner, request, assets, url) {
   const input = await bodyJSON(request);
   const name = typeof input.name === "string" ? input.name.trim() : "";
   if (!name || name.length > 80) throw new Error("Enter a study name up to 80 characters.");
@@ -168,10 +168,10 @@ async function createStudy(bucket, owner, request, env, url) {
   const study = { id, name, eventTime, city, gridCrs, createdAt: addedAt, expiresAt, expiry };
   let source;
   if (city) {
-    const { cities } = await catalog(env, url);
+    const { cities } = await catalog(assets, url);
     if (typeof city !== "string" || !Object.hasOwn(cities, city)) throw new Error("Select a listed city or upload your own boundary.");
     const meta = cities[city];
-    const response = await env.ASSETS.fetch(new Request(new URL("/data/admin/" + meta.boundary, url)));
+    const response = await assets.fetch(new Request(new URL("/data/admin/" + meta.boundary, url)));
     if (!response.ok) throw new Error("The selected city boundary could not be read.");
     source = { meta, bytes: await response.arrayBuffer() };
   }
@@ -227,7 +227,7 @@ function streamAnalysis(work) {
   return new Response(stream, { headers: { ...flags, "Content-Type": "application/x-ndjson; charset=utf-8" } });
 }
 
-async function executeRun(bucket, path, study, body, progress, env, url) {
+async function executeRun(bucket, path, study, body, progress, assets, url) {
   const id = body.id, kind = body.model;
   if (typeof id !== "string" || !uuid.test(id) || !Object.hasOwn(models, kind)) throw new Error("Select a supported model and a run identifier.");
   const key = runKey(path, id), existing = await getJSON(bucket, key);
@@ -267,7 +267,7 @@ async function executeRun(bucket, path, study, body, progress, env, url) {
         kind === "priority" ? "Combining walking heat and sunlit length with resident group shares…" :
           "Evaluating UTCI and aggregating by represented walking length…");
     const { preview, ...result } = computeStudy(kind, data, selection, values, { ...study, gridCrs: boundary.gridCrs });
-    const appBuild = await env.ASSETS.fetch(new Request(new URL("/build-info.json", url)));
+    const appBuild = await assets.fetch(new Request(new URL("/build-info.json", url)));
     const revision = appBuild.ok ? (await appBuild.json()).commit : "local";
     const inputs = Object.entries(data).map(([slot, { meta }]) => ({ slot, ...publicFile(meta) }));
     inputs.unshift({ role: "boundary", ...publicFile(boundary) });
@@ -277,7 +277,7 @@ async function executeRun(bucket, path, study, body, progress, env, url) {
     const record = { ...base, status: "complete", summary: result.summary, primary: result.primary,
       unit: result.unit, basis: result.basis, count: result.rows.length, previewStride: result.previewStride,
       candidates: result.candidates };
-    step("Saving the result layers and reproducibility manifest…");
+    step("Preparing the result layers and reproducibility manifest…");
     if (!await live(bucket, path)) throw new Error("The study has expired or was deleted.");
     await putJSON(bucket, resultKey, { ...result, manifest, boundary: outline, selection: feature(selection) });
     await putJSON(bucket, viewKey, preview);
@@ -350,23 +350,29 @@ export async function workspace(request, url, env, context) {
   const origin = request.headers.get("origin");
   if (origin && origin !== url.origin) return fail("Open the research workspace on this site.", 403);
   if (!bucket) return fail("Research storage is unavailable.", 503);
-  const owner = await digest(visitor);
+  return workspaceData(request, url, { bucket, owner: await digest(visitor), assets: env.ASSETS,
+    onList: () => context?.waitUntil(pruneResearch(bucket).catch(() => {})),
+    describe: body => narrate(body, env) });
+}
+
+// The authenticated service and the in-tab worker share these model and file operations.
+export async function workspaceData(request, url, { bucket, owner, assets, onList, describe }) {
   const [action, id, category, item, verb, extra] = url.pathname.slice("/api/workspace".length).split("/").slice(1);
   const method = request.method;
   try {
     if (!action && method === "GET") {
-      context?.waitUntil(pruneResearch(bucket).catch(() => {}));
+      onList?.();
       const { delimitedPrefixes } = await bucket.list({ prefix: ownerPrefix(owner), delimiter: "/", limit: 30 });
       const studies = [];
       for (let i = 0; i < delimitedPrefixes.length; i += 6) {
         const batch = await Promise.all(delimitedPrefixes.slice(i, i + 6).map(path => getJSON(bucket, studyKey(path))));
         studies.push(...batch.filter(active));
       }
-      const { cities } = await catalog(env, url);
+      const { cities } = await catalog(assets, url);
       return ok({ studies: studies.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
         cities: Object.entries(cities).map(([id, city]) => ({ id, name: city.name })) });
     }
-    if (action === "studies" && !id && method === "POST") return await createStudy(bucket, owner, request, env, url);
+    if (action === "studies" && !id && method === "POST") return await createStudy(bucket, owner, request, assets, url);
     if (action !== "studies" || !uuid.test(id ?? "") || extra) return fail("Not found.", 404);
     const path = studyPrefix(owner, id), study = await getJSON(bucket, studyKey(path));
     if (!active(study)) return fail("This research study was not found or has expired.", 404);
@@ -392,7 +398,7 @@ export async function workspace(request, url, env, context) {
     if (category === "runs") {
       if (!item && method === "POST") {
         const body = await bodyJSON(request);
-        return streamAnalysis(progress => executeRun(bucket, path, study, body, progress, env, url));
+        return streamAnalysis(progress => executeRun(bucket, path, study, body, progress, assets, url));
       }
       if (!uuid.test(item ?? "")) return fail("Run not found.", 404);
       const run = await getJSON(bucket, runKey(path, item));
@@ -401,9 +407,9 @@ export async function workspace(request, url, env, context) {
         const { question } = await bodyJSON(request);
         if (typeof question !== "string" || !question.trim() || question.length > 400) throw new Error("Enter a question of up to 400 characters.");
         const fallback = run.summary.map(s => s.label + " " + s.value + s.unit).join(" · ") + ". " + run.basis;
-        const explanation = await narrate({ narrate: { question, digest: { reply: fallback, timeUtc: run.eventTime,
-          model: run.label, metrics: run.summary, basis: run.basis } } }, env);
-        return ok({ reply: explanation.ok ? explanation.reply : fallback, mode: explanation.ok ? "Gemini" : "Run summary" });
+        const explanation = await describe?.({ narrate: { question, digest: { reply: fallback, timeUtc: run.eventTime,
+          model: run.label, metrics: run.summary, basis: run.basis } } });
+        return ok({ reply: explanation?.ok ? explanation.reply : fallback, mode: explanation?.ok ? "Gemini" : "Run summary" });
       }
       if (method !== "GET") return fail("Run not found.", 404);
       if (verb === "preview") return ok(await getJSON(bucket, path + "views/" + item));

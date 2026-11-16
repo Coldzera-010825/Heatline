@@ -1,5 +1,12 @@
 # Heatline changelog
 
+## v27 — Station columns, shade reduction and guest research workspace
+
+- Open London WOW temperatures in 3D columns by default. Switch to 2D points under the legend or play smoothly through the UTC days. The comparison map displays the two selected stations.
+- Add the Act 4 UTCI reduction map. Colours represent baseline minus scenario UTCI on eligible paired cells, including in administrative-area comparisons.
+- Let researchers enter the workspace as guests to validate files, run models and export results. Guest inputs and results stay in the current browser tab.
+- Update Data & Methods and refresh the Atlas knowledge base.
+
 ## v26 — Multi-area comparison maps
 
 - Move Administrative areas into the area selection card. Analyse one area or add and remove several areas from the same boundary layer.

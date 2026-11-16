@@ -24,6 +24,11 @@ await build({
   outExtension: { ".js": ".mjs" },
   bundle: true, format: "esm", platform: "browser", target: "es2023",
 });
+await build({
+  entryPoints: [path.join(project, "worker", "workspace-guest.mjs")],
+  outfile: path.join(project, "dist", "client", "workspace-guest-worker.js"),
+  bundle: true, minify: true, format: "esm", platform: "browser", target: "es2023",
+});
 writeFileSync(path.join(server, "wrangler.json"), JSON.stringify({
   name: "heatline",
   main: "index.js",
